@@ -1,0 +1,82 @@
+[build-system]
+# build the package with [flit](https://flit.readthedocs.io)
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+# See https://www.python.org/dev/peps/pep-0621/
+name = "AITW_birch_data_generation"
+dynamic = ["version"] # read from ocr_translate/__init__.py
+description = "A Python interface to birch_data_generation"
+authors = []
+readme = "README.md"
+license = { file = "LICENSE.txt" }
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.13",
+]
+keywords = ["birch", "wood", "microstructure"]
+requires-python = ">=3.9"
+dependencies = [
+]
+
+# [project.urls]
+# Source = ""
+
+[project.optional-dependencies]
+pre-commit = [
+    "pre-commit",
+    "pylint",
+]
+release = [
+    "flit"
+]
+
+[tool.flit.module]
+name = "birch_data_generation"
+
+[tool.flit.sdist]
+exclude = [
+    ".gitignore", ".github", ".pre-commit-config.yaml",
+    "Dockerfile", "entrypoint.sh",
+    "docs/", "docs/*"
+    ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+log_cli = true
+
+[tool.pylint.main]
+load-plugins = [
+    # "pylint_pytest"
+]
+
+[tool.pylint.messages_control]
+disable = [
+    "invalid-name",
+    "protected-access",
+    "too-many-instance-attributes",
+    "broad-exception-caught",
+]
+
+
+[tool.pylint.format]
+max-line-length = 120
+good-names = [
+    "_",
+    "l", "r", "b", "t",
+    "l1", "r1", "b1", "t1",
+    "l2", "r2", "b2", "t2",
+    "i", "j",
+    "k", "v",
+    "f",
+]
+
+[tool.pylint.design]
+max-args = 10
+max-locals = 20
+max-attributes = 12
