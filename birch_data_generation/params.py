@@ -31,17 +31,18 @@ class RayCellParams:
     is_exist_vessel: bool = True
     is_exist_ray_cell: bool = True
 
-    save_slice: bool = True
+    save_slice: int = 1
     save_volume_as_3d: bool = True
     write_local_deform_data: bool = True
     write_global_deform_data: bool = False
 
     # Not user defined
     slice_interest_space: int = 100
-    cell_end_thick: float = 4
+    cell_end_thick: int = 4
     neighbor_local = np.array([[-1, 0, 1, 0], [0, -1, 0, 1]])
     vessel_count: int = 50
 
+    # Internal parameters
     _size_im_enlarge: tuple[int, int, int] = None
     _x_vector: npt.NDArray = None
     _y_vector: npt.NDArray = None
@@ -67,6 +68,10 @@ class RayCellParams:
         'cellWallThick': 'cell_wall_thick',
     }
 
+    def __post_init__(self):
+        """Post-initialization"""
+        self.save_slice = int(self.save_slice) - 1
+
     @property
     def size_im(self):
         """Size of image"""
@@ -84,14 +89,14 @@ class RayCellParams:
     def x_vector(self):
         """X vector"""
         if self._x_vector is None:
-            self._x_vector = np.arange(5, self.size_im_enlarge[0] - 5, self.cell_r)
+            self._x_vector = np.arange(5, self.size_im_enlarge[0] - 4, self.cell_r)  # Right-inclusive
         return self._x_vector
 
     @property
     def y_vector(self):
         """Y vector"""
         if self._y_vector is None:
-            self._y_vector = np.arange(5, self.size_im_enlarge[1] - 5, self.cell_r)
+            self._y_vector = np.arange(5, self.size_im_enlarge[1] - 4, self.cell_r)  # Right-inclusive
         return self._y_vector
 
     @property
