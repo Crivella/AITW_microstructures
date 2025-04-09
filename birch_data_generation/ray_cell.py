@@ -53,7 +53,7 @@ class RayCell:
 
         l = len(slice_interest)
 
-        grid_shape = self.params.x_grid.shape
+        # grid_shape = self.params.x_grid.shape
         grid_size = self.params.x_grid.size
 
         x_grid = self.params.x_grid.flatten()
@@ -63,22 +63,14 @@ class RayCell:
         y_grid_interp = np.random.rand(grid_size, l) * 3 - 1.5 + y_grid[:, np.newaxis]
         thickness_interp = np.random.rand(grid_size, l) + self.params.cell_wall_thick - 0.5
 
-        # x_grid_interp = x_grid_interp.reshape(-1, l)
-        # y_grid_interp = y_grid_interp.reshape(-1, l)
-        # thickness_interp = thickness_interp.reshape(-1, l)
-
         interp_x = np.arange(1, self.params.size_im_enlarge[2] + 1)
         x_grid_all = np.empty((grid_size, len(interp_x)))
         y_grid_all = np.empty((grid_size, len(interp_x)))
         thickness_all = np.empty((grid_size, len(interp_x)))
         for i in range(x_grid.size):
-            cs_x = CubicSpline(slice_interest, x_grid_interp[i, :])
-            cs_y = CubicSpline(slice_interest, y_grid_interp[i, :])
-            cs_t = CubicSpline(slice_interest, thickness_interp[i, :])
-            x_grid_all[i, :] = cs_x(interp_x)
-            y_grid_all[i, :] = cs_y(interp_x)
-            thickness_all[i, :] = cs_t(interp_x)
-        # print(x_grid_all[:,359].reshape(self.params.x_grid.shape)[:,44])
+            x_grid_all[i, :] = CubicSpline(slice_interest, x_grid_interp[i, :])(interp_x)
+            y_grid_all[i, :] = CubicSpline(slice_interest, y_grid_interp[i, :])(interp_x)
+            thickness_all[i, :] = CubicSpline(slice_interest, thickness_interp[i, :])(interp_x)
 
         self.x_grid_all = x_grid_all
         self.y_grid_all = y_grid_all
@@ -148,14 +140,19 @@ class RayCell:
         """Get ray cell indexes"""
         ray_cell_x_ind_all = np.empty((1, 0))
         if self.params.is_exist_ray_cell:
-            ray_cell_linspace = np.arange(10, len(self.params.y_vector) - 9, self.params.ray_space)
+            # TODO: Check if the range here should be 9, -10
+            # ray_cell_linspace = np.arange(10, len(self.params.y_vector) - 9, self.params.ray_space)
+            ray_cell_linspace = np.arange(9, len(self.params.y_vector) - 10, self.params.ray_space)
             ray_cell_x_ind_all = ray_cell_linspace + np.random.rand(len(ray_cell_linspace)) * 10 - 5
-            ray_cell_x_ind_all = ray_cell_x_ind_all // 2  # + 1 array not 1-indexed
+            # ray_cell_x_ind_all = np.floor(ray_cell_x_ind_all / 2) * 2 + 1
+            ray_cell_x_ind_all = np.floor(ray_cell_x_ind_all / 2) * 2
+            # ray_cell_x_ind_all = ray_cell_x_ind_all // 2  # + 1 array not 1-indexed
 
-        return ray_cell_x_ind_all
+        return ray_cell_x_ind_all.astype(int)
 
     def get_vessels_all(self, ray_cell_x_ind_all: npt.NDArray = None):
         """Get vessels"""
+        # TODO: need testing
         logger.info('=' * 80)
         logger.info('Generating vessels...')
         if not self.params.is_exist_vessel:
@@ -292,17 +289,32 @@ class RayCell:
         indx_vessel = indx_vessel[:,:,0] * ly + indx_vessel[:,:,1]
 
         indx_vessel_cen = vessel_all[:, 0] * ly + vessel_all[:, 1]
-        indx_vessel_cen = indx_vessel_cen.astype(int)
 
-        return indx_skip_all, indx_vessel, indx_vessel_cen
+        return indx_skip_all.astype(int), indx_vessel.astype(int), indx_vessel_cen.astype(int)
 
-    def distrbute_ray_cells(self, ray_cell_x_ind_all: npt.NDArray):
-        """Distribute the ray cells across the volume"""
+    def distrbute_ray_cells(self, ray_cell_x_ind_all: npt.NDArray) -> tuple[
+            npt.NDArray,
+            list[npt.NDArray],
+            npt.NDArray,
+            npt.NDArray
+        ]:
+        """Distribute the ray cells across the volume
+
+        Args:
+            ray_cell_x_ind_all (npt.NDArray): Ray cell  indices
+
+        Returns:
+            tuple[ npt.NDArray, list[npt.NDArray], npt.NDArray, npt.NDArray ]:
+            - Ray cell indices (num_ray_cells, 2): indices array A where A[j][1] = A[j][0] + 1
+            - Ray cell widths (num_ray_cells, non_uniform): length of elements depends on the randomly generated group
+            - Keep indices (num_ray_cells,): Index of idx in ray_cell_x_ind_all
+            - Ray cell indices (num_ray_cells,): Array of indices of the ray cells (without the +1 column)
+        """
         logger.info('=' * 80)
         logger.info('Distributing ray cells...')
         x_ind = []
         width = []
-        keep = []
+        # keep = []
         x_ind_all_update = []
 
         sie_z = self.params.size_im_enlarge[2]
@@ -311,16 +323,15 @@ class RayCell:
         ray_cell_num_std = self.params.ray_cell_num_std
         ray_height = self.params.ray_height
 
-        m = sie_z / ray_cell_num / ray_height + 6
+        m = int(np.ceil(sie_z / ray_cell_num / ray_height + 6))
         for i, idx in enumerate(ray_cell_x_ind_all):
             app = [0]
-            ray_cell_space = np.round(16 * np.random.rand(int(np.ceil(m)))) + 6
+            ray_cell_space = np.round(16 * np.random.rand(m)) + 6
             rnd = np.round(-30 * np.random.rand())
             ray_idx = [idx, idx + 1]
             for rs in ray_cell_space:
-                group = max(5, min(25,
-                    np.round(np.random.randn() * ray_cell_num_std + ray_cell_num)
-                ))
+                group = np.random.randn() * ray_cell_num_std + ray_cell_num
+                group = np.clip(group, 5, 25)
                 app = app[-1] + (np.arange(group + 1) + rs + rnd) * ray_height
                 rnd = 0
 
@@ -330,21 +341,25 @@ class RayCell:
                 if app[-1] >= 150:
                     x_ind.append(ray_idx)
                     x_ind_all_update.append(idx)
-                    width.append(np.round(app))
-                    keep.append(i)
+                    width.append(np.round(app).astype(int))
+                    # keep.append(i)
 
         return (
             np.array(x_ind, dtype=int),
             width,
             # np.array(width, dtype=float),
-            np.array(keep, dtype=int),
+            # np.array(keep, dtype=int),
             np.array(x_ind_all_update, dtype=int)
         )
 
+        # `keep` is only used in generate_small_fibers to basically reconstruct the array `x_ind`
+        # Is it actually needed?
+
     def generate_small_fibers(
             self,
-            x_ind: npt.NDArray,
-            keep: npt.NDArray,
+            skip_fiber_column: npt.NDArray,
+            # x_ind: npt.NDArray,
+            # keep: npt.NDArray,
             # ray_idx: npt.NDArray,
             indx_skip_all: npt.NDArray,
             input_volume: npt.NDArray
@@ -354,11 +369,7 @@ class RayCell:
         logger.info('Generating small fibers...')
         vol_img_ref = np.copy(input_volume)
 
-        skip_fiber_column = np.concatenate((
-            x_ind[keep],
-            x_ind[keep] + 1
-        ))
-        skip_fiber_column = set(int(_) for _ in skip_fiber_column)
+        skip_fiber_column = set(int(_) for _ in skip_fiber_column.flatten())
         indx_skip_all = set(int(_) for _ in indx_skip_all.flatten())
 
         sie_x, sie_y, sie_z = self.params.size_im_enlarge
@@ -373,6 +384,8 @@ class RayCell:
         cell_length = self.params.cell_length
         cell_length_variance = self.params.cell_length_variance
         cell_end_thick = self.params.cell_end_thick
+
+        num_fiber_end_loc = int(np.ceil(sie_z / cell_length)) + 7
 
         # start = time.time()
         for i in range(1, lx - 2, 2):
@@ -394,7 +407,7 @@ class RayCell:
                 initial = np.round(np.random.rand() * cell_length)
                 fiber_end_loc_all = [initial,]
 
-                for _ in range(int(np.ceil(sie_z / cell_length)) + 7):
+                for _ in range(num_fiber_end_loc):
                     temp = np.clip(cell_length + np.random.randn() * cell_length_variance, 100, 3*cell_length)
                     fiber_end_loc_all.append(np.round(fiber_end_loc_all[-1] + temp))
                 fiber_end_loc_all = np.array(fiber_end_loc_all)
@@ -783,46 +796,6 @@ class RayCell:
 
         return u, v, u1, v1
 
-    @property
-    def root_dir(self):
-        if self._root_dir is None:
-            dir_cnt = 0
-            while os.path.exists(f'{dir_root}{dir_cnt}'):
-                dir_cnt += 1
-            self._root_dir = f'{dir_root}{dir_cnt}'
-        return self._root_dir
-
-    def create_dirs(self):
-        """Ensure the output directories are created"""
-        for dir_name in ['volImgBackBone', 'LocalDistVolume', 'LocalDistVolumeDispU', 'LocalDistVolumeDispV']:
-            os.makedirs(os.path.join(self.root_dir, dir_name), exist_ok=True)
-
-    def save_slice(self, vol_img_ref: npt.NDArray, dirname: str):
-        """Save the requested slice of the generated volume image"""
-        save_slice = self.params.save_slice
-        filename = os.path.join(self.root_dir, dirname, f'volImgRef_{save_slice+1:05d}.tiff')
-
-        logger.debug('Saving slice %d to %s', save_slice, filename)
-        logger.debug('vol_img_ref.shape: %s', vol_img_ref.shape)
-        logger.debug('min/max: %f %f', np.min(vol_img_ref), np.max(vol_img_ref))
-
-        self.save_2d_img(vol_img_ref[:, :, save_slice], filename)
-
-    @staticmethod
-    def save_2d_img(data: npt.NDArray, filename: str):
-        """Save 2D data to a TIFF file"""
-        print(np.where(np.isnan(data)))
-        img = Image.fromarray(data.astype(np.uint8), mode='L')
-        img.show()
-        img.save(filename)
-
-    def save_distortion(self, u: npt.NDArray, v: npt.NDArray):
-        """Save the distortion fields"""
-        u_name = os.path.join(self.root_dir, 'LocalDistVolumeDispU', f'u_volImgRef_{self.params.save_slice:05d}.csv')
-        v_name = os.path.join(self.root_dir, 'LocalDistVolumeDispV', f'v_volImgRef_{self.params.save_slice:05d}.csv')
-        np.savetxt(u_name, np.round(u, decimals=4), delimiter=',')
-        np.savetxt(v_name, np.round(v, decimals=4), delimiter=',')
-
     def ray_cell_shrinking(self, width: npt.NDArray, idx_all: npt.NDArray, dist_v: npt.NDArray) -> npt.NDArray:
         """Shrink the ray cell width"""
         logger.info('=' * 80)
@@ -840,20 +813,17 @@ class RayCell:
         ray_size = self.params.cell_r - cell_thick / 2
         slice_idx = self.params.save_slice
         # TODO: need to implement slice_idx with multiple indexes
-        # TODO: Implement multiple slices
         # I think this was reused from some other code because when the output array
         # is used it assumes it does not have a third dimension (or that it is always 1)
 
-        x_left = x_grid_all[:, slice_idx]
-        y_left = y_grid_all[:, slice_idx]
         # thick_left = thickness_all[:, slice_idx]
-        x_node_grid = x_left.reshape(*grid_shape)
-        y_node_grid = y_left.reshape(*grid_shape)
+        x_node_grid = x_grid_all[:, slice_idx].reshape(*grid_shape)
+        y_node_grid = y_grid_all[:, slice_idx].reshape(*grid_shape)
         logger.debug('x_node_grid.shape: %s', x_node_grid.shape)
         # print('y_node_grid.shape:', y_node_grid.shape)
         # thick_node_grid = thick_left.reshape(*grid_shape)
 
-        x_grid, y_grid = np.mgrid[0:sie_x, 0:sie_y]
+        _, y_grid = np.mgrid[0:sie_x, 0:sie_y]
 
         cnt = defaultdict(int)
         for idx in idx_all.flatten():
@@ -867,15 +837,15 @@ class RayCell:
         for key in cnt.keys():
             coeff1 = np.ones(sie_z)
             coeff2 = np.zeros(sie_z)
-            v1 = np.zeros_like(x_grid, dtype=float)
-            v2 = np.zeros_like(x_grid, dtype=float)
+            v1 = np.zeros_like(y_grid, dtype=float)
+            v2 = np.zeros_like(y_grid, dtype=float)
 
             # indicator = []
             v1_all = None
             v2_all = None
 
-            # print('Ray cell shrinking:', key, '/', cnt[key], cnt)
-            logger.debug('  Ray cell shrinking: %d/%d (key, cnt[key])', key, cnt[key])
+            logger.debug('  Ray cell shrinking: key = %d  cnt[key] = %d', key, cnt[key])
+            # TODO: check does this relies on the fact that idx_all should be ordered?
             for key_cnt in range(cnt[key]):
                 k = base_k + key_cnt
                 idx = idx_all[k]
@@ -951,7 +921,6 @@ class RayCell:
                 elif v1_all is None:
                     v1_all = v1
                     v2_all = v2
-                k += 1
 
             base_k += cnt[key]
             v_all[:, :] += coeff1[slice_idx] * v1_all + coeff2[slice_idx] * v2_all
@@ -979,6 +948,46 @@ class RayCell:
 
         return img_interp
 
+    @property
+    def root_dir(self):
+        if self._root_dir is None:
+            dir_cnt = 0
+            while os.path.exists(f'{dir_root}{dir_cnt}'):
+                dir_cnt += 1
+            self._root_dir = f'{dir_root}{dir_cnt}'
+        return self._root_dir
+
+    def create_dirs(self):
+        """Ensure the output directories are created"""
+        for dir_name in ['volImgBackBone', 'LocalDistVolume', 'LocalDistVolumeDispU', 'LocalDistVolumeDispV']:
+            os.makedirs(os.path.join(self.root_dir, dir_name), exist_ok=True)
+
+    def save_slice(self, vol_img_ref: npt.NDArray, dirname: str):
+        """Save the requested slice of the generated volume image"""
+        save_slice = self.params.save_slice
+        filename = os.path.join(self.root_dir, dirname, f'volImgRef_{save_slice+1:05d}.tiff')
+
+        logger.debug('Saving slice %d to %s', save_slice, filename)
+        logger.debug('vol_img_ref.shape: %s', vol_img_ref.shape)
+        logger.debug('min/max: %f %f', np.min(vol_img_ref), np.max(vol_img_ref))
+
+        self.save_2d_img(vol_img_ref[:, :, save_slice], filename)
+
+    @staticmethod
+    def save_2d_img(data: npt.NDArray, filename: str):
+        """Save 2D data to a TIFF file"""
+        # print(np.where(np.isnan(data)))
+        img = Image.fromarray(data.astype(np.uint8), mode='L')
+        # img.show()
+        img.save(filename)
+
+    def save_distortion(self, u: npt.NDArray, v: npt.NDArray):
+        """Save the distortion fields"""
+        u_name = os.path.join(self.root_dir, 'LocalDistVolumeDispU', f'u_volImgRef_{self.params.save_slice:05d}.csv')
+        v_name = os.path.join(self.root_dir, 'LocalDistVolumeDispV', f'v_volImgRef_{self.params.save_slice:05d}.csv')
+        np.savetxt(u_name, np.round(u, decimals=4), delimiter=',')
+        np.savetxt(v_name, np.round(v, decimals=4), delimiter=',')
+
     def generate(self):
         """Generate ray cells"""
         np.random.seed(self.params.random_seed)
@@ -1003,7 +1012,8 @@ class RayCell:
         logger.debug('indx_vessel: %s', indx_vessel.shape)
         logger.debug('indx_vessel_cen: %s', indx_vessel_cen.shape)
 
-        ray_cell_x_ind, ray_cell_width, keep_ray_cell, ray_cell_x_ind_all_update = self.distrbute_ray_cells(ray_cell_x_ind_all)
+        # ray_cell_x_ind, ray_cell_width, keep_ray_cell, ray_cell_x_ind_all_update = self.distrbute_ray_cells(ray_cell_x_ind_all)
+        ray_cell_x_ind, ray_cell_width, ray_cell_x_ind_all_update = self.distrbute_ray_cells(ray_cell_x_ind_all)
         # print('ray_cell_x_ind:', ray_cell_x_ind.shape, ray_cell_x_ind)
         # print('ray_cell_width:',)
         logger.debug('ray_cell_x_ind: %s  %s', ray_cell_x_ind.shape, ray_cell_x_ind)
@@ -1011,18 +1021,18 @@ class RayCell:
 
         for i,width in enumerate(ray_cell_width):
             logger.debug('   %d %s', i+1, width)
-        logger.debug('keep_ray_cell: %s  %s', keep_ray_cell.shape, keep_ray_cell)
+        # logger.debug('keep_ray_cell: %s  %s', keep_ray_cell.shape, keep_ray_cell)
         logger.debug('ray_cell_x_ind_all_update: %s  %s', ray_cell_x_ind_all_update.shape, ray_cell_x_ind_all_update)
         # sys.exit(0)
 
         vol_img_ref = 255 * np.ones(self.params.size_im_enlarge)
-        vol_img_ref = self.generate_small_fibers(ray_cell_x_ind_all, keep_ray_cell, indx_skip_all, vol_img_ref)
+        # vol_img_ref = self.generate_small_fibers(ray_cell_x_ind_all, keep_ray_cell, indx_skip_all, vol_img_ref)
+        vol_img_ref = self.generate_small_fibers(ray_cell_x_ind, indx_skip_all, vol_img_ref)
         vol_img_ref = self.generate_large_fibers(indx_vessel, indx_vessel_cen, indx_skip_all, vol_img_ref)
 
         if self.params.is_exist_ray_cell:
             for idx, width in zip(ray_cell_x_ind, ray_cell_width):
-                print(f'Generating ray cell: {idx} / {width}')
-                logger.debug('Generating ray cell: %d / %s', idx, width)
+                logger.debug('Generating ray cell: %s / %s', idx, width)
                 vol_img_ref = self.generate_raycell(idx, width, vol_img_ref)
 
         # Save the generated volume
@@ -1034,14 +1044,28 @@ class RayCell:
         logger.debug('u.shape: %s  min/max: %s %s', u.shape, u.min(), u.max())
         logger.debug('v.shape: %s  min/max: %s %s', v.shape, v.min(), v.max())
 
+        np.save('x_grid_all.npy', self.x_grid_all)
+        np.save('y_grid_all.npy', self.y_grid_all)
+        np.save('vol_img_ref.npy', vol_img_ref)
+        np.save('u.npy', u)
+        np.save('v.npy', v)
         if self.params.is_exist_ray_cell:
             v_all_ray = self.ray_cell_shrinking(ray_cell_width, ray_cell_x_ind_all_update, v)
             v += v_all_ray[:,:]
             logger.debug('vray   : %s  min/max: %s %s', v_all_ray.shape, v_all_ray.min(), v_all_ray.max())
             logger.debug('v.shape: %s  min/max: %s %s', v.shape, v.min(), v.max())
+            np.save('v_all_ray.npy', v_all_ray)
+        else:
+            v_all_ray = np.zeros_like(v)
+            np.save('v_all_ray.npy', v_all_ray)
+
         self.save_distortion(u, v)
 
         img_interp = self.apply_deformation(vol_img_ref, u, v)
 
+        np.save('img_interp.npy', img_interp)
+
         filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{self.params.save_slice+1:05d}.tiff')
         self.save_2d_img(img_interp, filename)
+
+        logger.info('======== DONE ========')
