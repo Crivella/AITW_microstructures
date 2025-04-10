@@ -51,28 +51,26 @@ class RayCell:
 
     def get_grid_all(self):
         """Specify the location of grid nodes and the thickness (with disturbance)"""
-        slice_interest = np.arange(0, self.params.size_im_enlarge[2], self.params.slice_interest_space)
+        gx, gy = self.params.x_grid.shape
+        gz = self.params.size_im_enlarge[2]
+        ds = self.params.slice_interest_space
 
+        slice_interest = np.arange(0, gz, ds)
         l = len(slice_interest)
 
-        # grid_shape = self.params.x_grid.shape
-        grid_size = self.params.x_grid.size
+        x_grid_interp = np.random.rand(gx, gy, l) * 3 - 1.5 + self.params.x_grid[..., np.newaxis]
+        y_grid_interp = np.random.rand(gx, gy, l) * 3 - 1.5 + self.params.y_grid[..., np.newaxis]
+        thickness_interp = np.random.rand(gx, gy, l) + self.params.cell_wall_thick - 0.5
 
-        x_grid = self.params.x_grid.flatten()
-        y_grid = self.params.y_grid.flatten()
-
-        x_grid_interp = np.random.rand(grid_size, l) * 3 - 1.5 + x_grid[:, np.newaxis]
-        y_grid_interp = np.random.rand(grid_size, l) * 3 - 1.5 + y_grid[:, np.newaxis]
-        thickness_interp = np.random.rand(grid_size, l) + self.params.cell_wall_thick - 0.5
-
-        interp_x = np.arange(1, self.params.size_im_enlarge[2] + 1)
-        x_grid_all = np.empty((grid_size, len(interp_x)))
-        y_grid_all = np.empty((grid_size, len(interp_x)))
-        thickness_all = np.empty((grid_size, len(interp_x)))
-        for i in range(x_grid.size):
-            x_grid_all[i, :] = CubicSpline(slice_interest, x_grid_interp[i, :])(interp_x)
-            y_grid_all[i, :] = CubicSpline(slice_interest, y_grid_interp[i, :])(interp_x)
-            thickness_all[i, :] = CubicSpline(slice_interest, thickness_interp[i, :])(interp_x)
+        interp_z = np.arange(gz)
+        x_grid_all = np.empty((gx, gy, gz))
+        y_grid_all = np.empty_like(x_grid_all)
+        thickness_all = np.empty_like(x_grid_all)
+        for i in range(gx):
+            for j in range(gy):
+                x_grid_all[i, j, :] = CubicSpline(slice_interest, x_grid_interp[i, j, :])(interp_z)
+                y_grid_all[i, j, :] = CubicSpline(slice_interest, y_grid_interp[i, j, :])(interp_z)
+                thickness_all[i, j, :] = CubicSpline(slice_interest, thickness_interp[i, j, :])(interp_z)
 
         self.x_grid_all = x_grid_all
         self.y_grid_all = y_grid_all
@@ -481,6 +479,35 @@ class RayCell:
 
         return vol_img_ref
 
+    def get_fiber_end_condition(self, lx: int, ly: int, i_slice: int) -> npt.NDArray:
+        """Get a condition for skipping fiber generation due to fiber ending"""
+        sie_z = self.params.size_im_enlarge[2]
+
+        cell_length = self.params.cell_length
+        cell_length_variance = self.params.cell_length_variance
+        cell_end_thick = self.params.cell_end_thick
+
+        num_fiber_end_loc = int(np.ceil(sie_z / cell_length)) + 7
+
+        fiber_end = np.random.rand(lx, ly, 1) * cell_length
+        for _ in range(num_fiber_end_loc):
+            tmp = np.clip(cell_length + np.random.randn(lx, ly) * cell_length_variance, 100, 3*cell_length)
+            fiber_end = np.concatenate((fiber_end, fiber_end[:, :, -1:] + tmp[..., np.newaxis]), axis=-1)
+        fiber_end = np.round(fiber_end)
+        # print('fiber_end_loc_all:', fiber_end_loc_all.shape)
+
+        # This is a manually given value. To increase the randomness
+        fiber_end = fiber_end - 4 * cell_length + 1
+        # The end of the vessel should be inside the volume.
+        fiber_end[(fiber_end < 4) | (fiber_end > sie_z - 4)] = np.nan
+
+        ct = np.arange(int(cell_end_thick))
+        fiber_end = fiber_end[..., np.newaxis] + ct[np.newaxis, np.newaxis, np.newaxis, :]
+        fiber_end = fiber_end.reshape(lx, ly, -1).astype(int)
+        fiber_end_cond = np.any(fiber_end == i_slice, axis=-1)
+
+        return fiber_end_cond
+
     @Clock('small_fibers')
     def generate_small_fibers(
             self,
@@ -488,7 +515,9 @@ class RayCell:
             indx_skip_all: npt.NDArray,
             input_volume: npt.NDArray
         ) -> npt.NDArray:
-        """Generate small fibers.
+        """Generate small fibers. This is a modified version of the original function.
+        It runs in similar time but could be parallelized on the Z-slices and can compute only the
+        required slices.
 
         Args:
             skip_fiber_column (npt.NDArray): indexes of columns where not to generate fibers
@@ -502,201 +531,94 @@ class RayCell:
         logger.info('Generating small fibers...')
         vol_img_ref = np.copy(input_volume)
 
-        print('skip_fiber_column:', skip_fiber_column.shape)
-        print(skip_fiber_column)
+        neigh_loc = self.params.neighbor_local
         skip_fiber_column = np.array(skip_fiber_column).flatten().astype(int)
         skip_fiber_column = np.unique((skip_fiber_column[(skip_fiber_column % 2) == 1]) // 2)
-        print(skip_fiber_column)
-        # skip_fiber_column = set(int(_) for _ in skip_fiber_column.flatten())
-        indx_skip_all = indx_skip_all.flatten().astype(int)
-        sie_x, sie_y, sie_z = self.params.size_im_enlarge
 
+        sie_x, sie_y, sie_z = self.params.size_im_enlarge
         gx, gy = self.params.x_grid.shape
 
-        neigh_loc = self.params.neighbor_local
-
-        cell_length = self.params.cell_length
-        cell_length_variance = self.params.cell_length_variance
-        cell_end_thick = self.params.cell_end_thick
-
-        num_fiber_end_loc = int(np.ceil(sie_z / cell_length)) + 7
-
-        x_grid_all = self.x_grid_all.reshape((gx, gy, sie_z))
-        y_grid_all = self.y_grid_all.reshape((gx, gy, sie_z))
+        x_grid_all = self.x_grid_all
+        y_grid_all = self.y_grid_all
+        thick_all = self.thickness_all
 
         lx = (gx - 2) // 2
         ly = (gy - 2) // 2
 
-        x_all_0 = np.empty((lx, ly))
-        y_all_0 = np.empty_like(x_all_0)
-        x_all_1 = np.empty_like(x_all_0)
-        y_all_1 = np.empty_like(x_all_0)
-        x_all_2 = np.empty_like(x_all_0)
-        y_all_2 = np.empty_like(x_all_0)
-        x_all_3 = np.empty_like(x_all_0)
-        y_all_3 = np.empty_like(x_all_0)
-        x_all_4 = np.empty_like(x_all_0)
-        y_all_4 = np.empty_like(x_all_0)
 
         skip_idx = []
-        for idx in indx_skip_all:
+        for idx in indx_skip_all.flatten().astype(int):
             x = idx // gy
             y = idx % gy
             if x % 2 and y % 2:
                 skip_idx.append((x // 2, y // 2))
         skip_idx = np.array(skip_idx)
-        print('skip_idx:', skip_idx.shape)
 
+        point_coords = np.empty((lx, ly, 4, 2))
+        t_all = np.empty((lx, ly))
         skip_cell_thick = 0  # TODO: Should this be a settable parameter?
         # for i_slice in range(sie_z):
-        for i_slice in range(min(3, sie_z)):
-            start = time.time()
-            logger.debug('  Small fibers: %d/%d', i_slice, sie_z)
+        for i_slice in range(4):
+            if i_slice % 10 == 0:
+                logger.debug('  Small fibers: %d/%d', i_slice, sie_z)
             x_slice = x_grid_all[:,:, i_slice]
             y_slice = y_grid_all[:,:, i_slice]
-            t_slice = self.thickness_all[:, i_slice]
+            t_slice = thick_all[:,:, i_slice]
 
             # Assignments are split into [:, 0::2] and [1::2, :] to keep into account staggering along x direction
             # every other row
-            # (0, 0)
-            x_all_0[:, 0::2] = x_slice[1:-2:2, 1:-2:4]
-            x_all_0[:, 1::2] = x_slice[2:-1:2, 3:-2:4]
-            y_all_0[:, 0::2] = y_slice[1:-2:2, 1:-2:4]
-            y_all_0[:, 1::2] = y_slice[2:-1:2, 3:-2:4]
-            # Neighbor (-1, 0)
-            x_all_1[:, 0::2] = x_slice[0:-3:2, 1:-2:4]
-            x_all_1[:, 1::2] = x_slice[1:-2:2, 3:-2:4]
-            y_all_1[:, 0::2] = y_slice[0:-3:2, 1:-2:4]
-            y_all_1[:, 1::2] = y_slice[1:-2:2, 3:-2:4]
-            # Neighbor (1, 0)
-            x_all_2[:, 0::2] = x_slice[2:-1:2, 1:-2:4]
-            x_all_2[:, 1::2] = x_slice[3:  :2, 3:-2:4]
-            y_all_2[:, 0::2] = y_slice[2:-1:2, 1:-2:4]
-            y_all_2[:, 1::2] = y_slice[3:  :2, 3:-2:4]
-            # Neighbor (0, -1)
-            x_all_3[:, 0::2] = x_slice[1:-2:2, 0:-3:4]
-            x_all_3[:, 1::2] = x_slice[2:-1:2, 2:-3:4]
-            y_all_3[:, 0::2] = y_slice[1:-2:2, 0:-3:4]
-            y_all_3[:, 1::2] = y_slice[2:-1:2, 2:-3:4]
-            # Neighbor (0, 1)
-            x_all_4[:, 0::2] = x_slice[1:-2:2, 2:-1:4]
-            x_all_4[:, 1::2] = x_slice[2:-1:2, 4:-1:4]
-            y_all_4[:, 0::2] = y_slice[1:-2:2, 2:-1:4]
-            y_all_4[:, 1::2] = y_slice[2:-1:2, 4:-1:4]
+            t_all[:, 0::2] = t_slice[1:-2:2, 1:-2:4]
+            t_all[:, 1::2] = t_slice[2:-1:2, 3:-2:4]
 
-            # This is after to properly do ellipse fit with neighbors and skip only based on centers
-            # x_slice[:, skip_fiber_column] = np.nan
-            # if len(skip_idx) > 0:
-            #     x_slice[skip_idx[:, 0], skip_idx[:, 1]] = np.nan
+            for i,(dx,dy) in enumerate(neigh_loc.T):
+                slice_1_1 = slice(1+dx, -2+dx, 2)
+                slice_2_1 = slice(2+dx, (-1+dx) or None, 2)
+                slice_1_2 = slice(1+dy, -2+dy, 4)
+                slice_2_2 = slice(3+dy, -2+dy, 4)
+                for j,s in enumerate((x_slice, y_slice)):
+                    point_coords[:, 0::2, i,j] = s[slice_1_1, slice_1_2]
+                    point_coords[:, 1::2, i,j] = s[slice_2_1, slice_2_2]
 
-            nxt = time.time()
-            print('COORDS:', nxt - start)
-            start = nxt
-
-            print(x_grid_all.shape, y_grid_all.shape)
-            print(x_all_1.shape, y_all_1.shape)
-
-            x = np.stack((x_all_1, x_all_2, x_all_3, x_all_4), axis=-1)
-            y = np.stack((y_all_1, y_all_2, y_all_3, y_all_4), axis=-1)
-            print(x.shape)
-            point_coords = np.stack((x, y), axis=-1)
             if skip_cell_thick == 0:
-                point_coords[..., 1, 1] -= 2
-                point_coords[..., 3, 1] += 2
+                point_coords[:,:, 1, 1] -= 2
+                point_coords[:,:, 3, 1] += 2
 
-            print(point_coords.shape)
-            print(np.concatenate((point_coords**2, point_coords), axis=-1).shape)
+            r1, r2, h, k = fit_elipse(point_coords)  # Estimate the coefficients of the ellipse. (lx, ly, 4)
 
-            r1, r2, h, k = fit_elipse(point_coords)  # Estimate the coefficients of the ellipse.
-            print(r1.shape)
-
-            # r1[:, skip_fiber_column] = np.nan
-            # r2[:, skip_fiber_column] = np.nan
-            # Just set a very high value for h in nodes that should be ignored
+            # Set a very high value for h in nodes that should be ignored
             h[:, skip_fiber_column] = 80000
             if len(skip_idx) > 0:
                 h[skip_idx[:, 0], skip_idx[:, 1]] = 80000
-            # k[:, skip_fiber_column] = 80000
-            # r2[w] = np.nan
-            # h[w] = np.nan
-            # k[w] = np.nan
+            h[self.get_fiber_end_condition(lx, ly, i_slice)] = 80000
 
-            nxt = time.time()
-            print('ELLIPSE FIT:', nxt - start)
-            start = nxt
+            # The alternative is to write the full x/y grid and denote it into sub-domains based on the closest h/k
+            # center and than use griddata to get the value of r1/r2/h/k on the full grid but this is slower
+            for thick, _r1, _r2, _h, _k in zip(t_all.flatten(), r1.flatten(), r2.flatten(), h.flatten(), k.flatten()):
+                if np.any(np.isnan([_h, _k, _r1, _r2])):
+                    continue
+                mr = np.floor(max(_r1, _r2))
 
-            x_grid, y_grid = np.mgrid[0:sie_x, 0:sie_y]
+                min_x = max(0, int(np.ceil(_h)) - mr)
+                max_x = min(sie_x, int(np.ceil(_h)) + mr)
+                min_y = max(0, int(np.ceil(_k)) - mr)
+                max_y = min(sie_y, int(np.ceil(_k)) + mr)
+                if min_x >= max_x or min_y >= max_y:
+                    continue
+                rx_grid, ry_grid = np.mgrid[min_x:max_x, min_y:max_y].astype(int)
+                in_elipse_2 = (
+                    (rx_grid - _h)**2 / (_r1 - thick - skip_cell_thick)**2 +
+                    (ry_grid - _k)**2 / (_r2 - thick - skip_cell_thick)**2
+                )
 
-            # r1_grid = griddata(
-            #     (x_all_0.flatten(), y_all_0.flatten()), r1.flatten(),
-            #     (x_grid, y_grid),
-            #     method='nearest'
-            # )
-            r1_grid = NearestNDInterpolator(
-                (x_all_0.flatten(), y_all_0.flatten()), r1.flatten()
-            )(x_grid, y_grid)
-            nxt = time.time()
-            print('GRIDS1:', nxt - start)
-            start = nxt
-            r2_grid = griddata(
-                (x_all_0.flatten(), y_all_0.flatten()), r2.flatten(),
-                (x_grid, y_grid),
-                method='nearest'
-            )
-            nxt = time.time()
-            print('GRIDS2:', nxt - start)
-            start = nxt
-            h_grid = griddata(
-                (x_all_0.flatten(), y_all_0.flatten()), h.flatten(),
-                (x_grid, y_grid),
-                method='nearest'
-            )
-            nxt = time.time()
-            print('GRIDS3:', nxt - start)
-            start = nxt
-            k_grid = griddata(
-                (x_all_0.flatten(), y_all_0.flatten()), k.flatten(),
-                (x_grid, y_grid),
-                method='nearest'
-            )
-            nxt = time.time()
-            print('GRIDS4:', nxt - start)
-            start = nxt
-            t_grid = griddata(
-                (self.params.x_grid.flatten(), self.params.y_grid.flatten()), t_slice.flatten(),
-                (x_grid, y_grid),
-                method='nearest'
-            )
-            nxt = time.time()
-            print('GRIDS5:', nxt - start)
-            start = nxt
+                vol_img_ref[rx_grid, ry_grid, i_slice] /= 1 + np.exp(-(in_elipse_2 - 1) * 20)
 
-            in_ellipse_2 = (
-                (x_grid - h_grid)**2 / (r1_grid - t_grid - skip_cell_thick)**2 +
-                (y_grid - k_grid)**2 / (r2_grid - t_grid - skip_cell_thick)**2
-            )
-            v_grid = 1 + np.exp(-(in_ellipse_2 - 1) * 20)
+        return vol_img_ref.astype(int)
 
-
-            # TODO: implement skipping of (x,y) specific indexes
-            # Prob can just set the values of r1, r2, h, k to NaN or 0
-
-            # w = np.where(~np.isnan(v_grid))
-            # vol_img_ref[*w, i_slice] /= v_grid[*w]
-            vol_img_ref[..., i_slice] /= v_grid
-
-            print('UPDATE:', time.time() - start)
-            # break
-
-        return np.clip(vol_img_ref, 0, 255).astype(int)
-
+    @Clock('large_fibers')
     def generate_large_fibers(
             self,
             indx_vessel: npt.NDArray,
             indx_vessel_cen: npt.NDArray,
-            # x_ind: npt.NDArray,
-            # keep: npt.NDArray,
-            # ray_idx: npt.NDArray,
             indx_skip_all: npt.NDArray,
             input_volume: npt.NDArray
         ) -> npt.NDArray:
@@ -716,6 +638,10 @@ class RayCell:
         vessel_thicker = 1  # TODO: Should this be a settable parameter?
         vessel_length_variance = self.params.vessel_length_variance
         cell_end_thick = self.params.cell_end_thick
+
+        # TODO: check and also work with 3D grid
+        x_grid_all = self.x_grid_all.reshape(-1, sie_z)
+        y_grid_all = self.y_grid_all.reshape(-1, sie_z)
 
         for i in range(1, len(x_vector)-2, 2):
             for j in range(1, len(y_vector)-2, 2):
@@ -752,8 +678,8 @@ class RayCell:
                     # print('Large fibers:', i, j, i_slice)
 
                     point_coord = np.column_stack((
-                        self.x_grid_all[*(*indx_vessel[i_vessel].T, i_slice)],
-                        self.y_grid_all[*(*indx_vessel[i_vessel].T, i_slice)]
+                        x_grid_all[*(*indx_vessel[i_vessel].T, i_slice)],
+                        y_grid_all[*(*indx_vessel[i_vessel].T, i_slice)]
                     ))
                     r1, r2, h, k = fit_elipse(point_coord)  # Estimate the coeffecients of the elipse.
 
@@ -780,7 +706,8 @@ class RayCell:
                                 vol_img_ref[t1, t2, i_slice] = 1 / (1 + np.exp(-(in_elipse2 - 1) / 0.05)) * 255
         return vol_img_ref
 
-    def generate_raycell(self, ray_idx: int, ray_width: npt.NDArray, input_volume: npt.NDArray):
+    @Clock('ray_cell')
+    def generate_raycell_(self, ray_idx: int, ray_width: npt.NDArray, input_volume: npt.NDArray):
         """Generate ray cell"""
         logger.info('=' * 80)
         logger.info('Generating ray cell...')
@@ -791,19 +718,14 @@ class RayCell:
         rcl_d3 = ray_cell_length / 3
         rcl_t2 = ray_cell_length * 2
 
-        # x_grid_all = self.x_grid_all
-        # y_grid_all = self.y_grid_all
-        # thickness_all = self.thickness_all
-
         sie_x, _, sie_z = self.params.size_im_enlarge
         x_grid = self.params.x_grid
 
         cell_end_thick = self.params.cell_end_thick
-        # cell_thick = self.params.cell_wall_thick
 
+        # between first column and second column need a deviation
+        ray_column_rand = 1 / 2 * ray_height
         for column_idx in ray_idx:
-            # between first column and second column need a deviation
-            ray_column_rand = 1 / 2 * ray_height
             vessel_end_loc = []
             vessel_end_loc.append(-ray_cell_length * np.random.rand(1))
             lim = sie_x + ray_cell_length
@@ -931,12 +853,210 @@ class RayCell:
                                         )
         return vol_img_ref_final
 
+    def get_vessel_end_loc(self, shape = None):
+
+        if shape is None:
+            shape = tuple()
+        elif isinstance(shape, int):
+            shape = (shape,)
+
+        ray_cell_length = self.params.ray_cell_length
+        ray_cell_variance = self.params.ray_cell_variance
+        # ray_height = self.params.ray_height
+        rcl_d3 = ray_cell_length / 3
+        rcl_t2 = ray_cell_length * 2
+        sie_x = self.params.size_im_enlarge[0]
+
+        lim = sie_x + ray_cell_length
+
+        vessel_end_loc = np.random.rand(*shape, 1) * ray_cell_length
+        while np.any(vessel_end_loc[...,-1] < lim):
+            tmp = ray_cell_length + ray_cell_variance * np.random.randn(*shape, 1)
+            tmp[tmp < rcl_d3] = rcl_t2
+            tmp[tmp > rcl_t2] = rcl_t2
+            vessel_end_loc = np.concatenate((vessel_end_loc, vessel_end_loc[..., -1:] + tmp), axis=-1)
+            # print('vessel_end_loc:', vessel_end_loc.shape, np.min(vessel_end_loc[..., -1]))
+        vessel_end_loc = np.round(vessel_end_loc)
+        # vessel_end_loc[vessel_end_loc > sie_x + ray_cell_length / 2] = np.nan
+
+        # vessel_end_loc = vessel_end_loc[vessel_end_loc <= sie_x + ray_cell_length / 2]
+
+        return vessel_end_loc.astype(int)
+
+    @Clock('ray_cell')
+    def generate_raycell(
+            self, ray_idx: tuple[int, int], ray_width: npt.NDArray, input_volume: npt.NDArray
+        ) -> npt.NDArray:
+        """Generate ray cell
+
+        Args:
+            ray_idx (tuple[int, int]): Tuple of (idx, idx+1) where idx is the y-index of the ray cell
+            ray_width (npt.NDArray): Ray cell width (TODO need to understand this array)
+            input_volume (npt.NDArray): Input 3D gray-scale image volume to modify
+
+        Returns:
+            npt.NDArray: Modified 3D gray-scale image volume with ray cells
+        """
+        logger.info('=' * 80)
+        logger.info('Generating ray cell...')
+        vol_img_ref_final = np.copy(input_volume)
+
+        ray_cell_length = self.params.ray_cell_length
+        ray_height = self.params.ray_height
+
+        rcl_d2 = ray_cell_length / 2
+        rcl_d2_r = np.round(ray_cell_length / 2)
+
+        sie_x, _, sie_z = self.params.size_im_enlarge
+        # gx, gy = self.params.x_grid.shape
+
+        x_grid_all = self.x_grid_all
+        y_grid_all = self.y_grid_all
+        thick_all = self.thickness_all
+
+        cell_end_thick = self.params.cell_end_thick
+        cet_d2_p1 = cell_end_thick // 2 + 1
+        cet_d2_m1 = cell_end_thick // 2 - 1
+
+        ray_idx = np.array(ray_idx).flatten().astype(int)
+        ray_width = np.array(ray_width).flatten().astype(int)
+
+        dx = np.arange(sie_x)
+
+        vessel_end_loc = self.get_vessel_end_loc(len(ray_idx))
+
+        ray_column_rand = int(np.round(1 / 2 * ray_height))
+
+        slices = self.params.save_slice
+
+        for m2, j_slice in enumerate(ray_width):
+            logger.debug('  %d/%d   %d', m2, len(ray_width), j_slice)
+            k0 = j_slice
+            k1 = j_slice + ray_column_rand
+            tmp0_1 = (max(1, k0) + min(k0 + ray_height, sie_z)) / 2
+            tmp1_1 = (max(1, k1) + min(k1 + ray_height, sie_z)) / 2
+            # tmp_1 = (np.max((1, k)) + np.min((k + ray_height, sie_z))) / 2
+
+            t0 = int(np.round(tmp0_1)) - 1  # 0-indexed
+            t1 = int(np.round(tmp1_1)) - 1
+
+            for i, column_idx in enumerate(ray_idx):
+                # logger.debug('Ray cell: %d %s', column_idx, ray_idx)
+                # vessel_end_loc = self.get_vessel_end_loc().reshape(-1)
+
+                if column_idx % 2:
+                    t, k, tmp_1 = t1, k1, tmp1_1
+                else:
+                    t, k, tmp_1 = t0, k0, tmp0_1
+
+                if t < 0 or t >= sie_z - 11:
+                    continue
+
+                vel = vessel_end_loc[i]
+                vel = vel[vel <= sie_x + rcl_d2]
+
+                # rand = ray_column_rand * ((column_idx + 1) % 2)
+
+                interp_x0 = x_grid_all[:, column_idx, t]
+                interp_y0 = y_grid_all[:, column_idx, t]
+                interp_x1 = x_grid_all[:, column_idx + 1, t]
+                interp_y1 = y_grid_all[:, column_idx + 1, t]
+                interp_thick = thick_all[:, column_idx, t]
+                tmp_2 = rcl_d2_r if m2 % 2 else 0
+
+                try:
+                    y_interp1_c = CubicSpline(interp_x0, interp_y0)(dx) - 1.5
+                    y_interp2_c = CubicSpline(interp_x1, interp_y1)(dx) + 1.5
+                    thick_interp_c = CubicSpline(interp_x0, interp_thick)(dx)
+                except ValueError:
+                    # TODO: check how matlab handles this
+                    # The spline interpolations as is now can generate an X/Y grid where 2 points can swap order
+                    # e.g. on x-coords the left points can get pushed right enough and the right-point left enough
+                    # for them to swap order causing successive spline interpolation to fail because the x-coords
+                    # are not monotonic
+                    logger.warning('    WARNING: Spline interpolation failed')
+                    continue
+
+                cell_center = np.column_stack((
+                    dx,
+                    np.round((y_interp2_c + y_interp1_c)) / 2,
+                    np.full(dx.shape, tmp_1)
+                ))
+                cell_r = np.column_stack((
+                    (y_interp2_c - y_interp1_c) / 2,
+                    np.full(dx.shape, (np.min((k + ray_height, sie_z)) - np.max((1, k))) / 2)
+                )) + 0.5
+
+                d_col = int(cell_end_thick)
+                for vel_r, vel_r1 in zip(vel[:-1], vel[1:]):
+                    # tmp_2 = rcl_d2_r if m2 % 2 else 0
+                    vel_col_r = int(vel_r + tmp_2)
+                    if vel_col_r < 1:
+                        continue
+                    vel_col_r1 = int(vel_r1 + tmp_2)
+                    if vel_col_r1 > sie_x - 1:
+                        continue
+                    cell_neigh_pt = np.array([
+                        [vel_col_r, vel_col_r1],
+                        [np.round(y_interp1_c[vel_col_r]), np.round(y_interp2_c[vel_col_r])],
+                        [np.max((0, k)), np.min((k + ray_height, sie_x))]
+                    ])
+
+                    valid_idx = np.arange(
+                        vel_col_r + d_col,
+                        vel_col_r1 - cet_d2_p1  #Right inclusive
+                    )
+                    valid_idx = set(int(_) for _ in valid_idx)
+                    d_col = cet_d2_m1
+
+                    for idx in range(vel_col_r, vel_col_r1):
+                        if j_slice == np.min(ray_width):
+                            vol_img_ref_final[
+                                idx,
+                                int(y_interp1_c[idx]):int(y_interp2_c[idx] + 1),
+                                int(cell_center[idx, 2]):int(cell_neigh_pt[2, 1] + 1)
+                            ] = 255
+                        elif j_slice == np.max(ray_width):
+                            vol_img_ref_final[
+                                idx,
+                                int(y_interp1_c[idx]):int(y_interp2_c[idx] + 1),
+                                int(cell_neigh_pt[2, 0]):int(cell_center[idx, 2])
+                            ] = 255
+                        else:
+                            vol_img_ref_final[
+                                idx,
+                                int(y_interp1_c[idx]):int(y_interp2_c[idx] + 1),
+                                int(cell_neigh_pt[2, 0]):int(cell_neigh_pt[2, 1])
+                            ] = 255
+
+                        if idx not in valid_idx:
+                            continue
+
+                        for j in range(int(cell_neigh_pt[1, 0]), int(cell_neigh_pt[1, 1]) + 1):
+                            for s in range(int(cell_neigh_pt[2, 0]), int(cell_neigh_pt[2, 1]) + 1):
+                                outer_elipse = (
+                                    (j - cell_center[idx, 1])**2 / cell_r[idx, 0]**2 +
+                                    (s - cell_center[idx, 2])**2 / cell_r[idx, 1]**2
+                                )
+
+                                if outer_elipse < 1:
+                                    inner_elipse = (
+                                        (j - cell_center[idx, 1])**2 / (cell_r[idx, 0] - thick_interp_c[idx])**2 +
+                                        (s - cell_center[idx, 2])**2 / (cell_r[idx, 1] - thick_interp_c[idx])**2
+                                    )
+                                    # print('   ', j, s)
+                                    vol_img_ref_final[idx, j, s] = int(
+                                        (1 / (1 + np.exp(-(inner_elipse - 1) / .05))) * 255
+                                    )
+
+        return vol_img_ref_final
+
     def generate_deformation(self, ray_cell_idx: npt.NDArray, idx_skip_all: npt.NDArray, idx_vessel_cen: npt.NDArray):
         """Add complicated deformation to the volume image. The deformation fields are generated separately.
         Then, they are summed together. Here u, v are initialized to be zero. Then they are summed."""
         logger.info('=' * 80)
         logger.info('Generating deformation...')
-        sie_x, sie_y, _ = self.params.size_im_enlarge
+        sie_x, sie_y, sie_z = self.params.size_im_enlarge
 
         x_vector = self.params.x_vector
         y_vector = self.params.y_vector
@@ -951,6 +1071,10 @@ class RayCell:
         u1 = np.zeros_like(x, dtype=float)
         v1 = np.zeros_like(x, dtype=float)
 
+        # TODO: work with 3D grid
+        x_grid_all = self.x_grid_all.reshape(-1, sie_z)
+        y_grid_all = self.y_grid_all.reshape(-1, sie_z)
+
         for i in range(1, lx-1, 2):
             logger.debug('  i: %d/%d', i, lx-1)
             for j in range(1, ly-1, 2):
@@ -964,7 +1088,7 @@ class RayCell:
                 is_close_to_ray_far = mm <= 8
 
                 vessel_idx = np.where(idx == idx_vessel_cen)[0]
-                pcx, pcy = self.x_grid_all[idx, 0], self.y_grid_all[idx, 0]
+                pcx, pcy = x_grid_all[idx, 0], y_grid_all[idx, 0]
                 if len(vessel_idx) == 0:
                     # Small fibers
                     if is_close_to_ray:
@@ -1028,8 +1152,8 @@ class RayCell:
         # is used it assumes it does not have a third dimension (or that it is always 1)
 
         # thick_left = thickness_all[:, slice_idx]
-        x_node_grid = x_grid_all[:, slice_idx].reshape(*grid_shape)
-        y_node_grid = y_grid_all[:, slice_idx].reshape(*grid_shape)
+        x_node_grid = x_grid_all[..., slice_idx]
+        y_node_grid = y_grid_all[..., slice_idx]
         logger.debug('x_node_grid.shape: %s', x_node_grid.shape)
         # print('y_node_grid.shape:', y_node_grid.shape)
         # thick_node_grid = thick_left.reshape(*grid_shape)

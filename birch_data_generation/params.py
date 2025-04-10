@@ -39,7 +39,7 @@ class RayCellParams:
     # Not user defined
     slice_interest_space: int = 100
     cell_end_thick: int = 4
-    neighbor_local = np.array([[-1, 0, 1, 0], [0, -1, 0, 1]])
+    neighbor_local = np.array([[-1, 0, 1, 0], [0, -1, 0, 1]], dtype=int)
     vessel_count: int = 50
 
     # Internal parameters

@@ -1,4 +1,5 @@
 import logging
+import os
 
 logger = None
 
@@ -18,7 +19,9 @@ if logger is None:
     logger.addHandler(console_handler)
 
     # File handler
-    file_handler = logging.FileHandler('birch_data_generation.log')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    log_file_name = os.getenv('LOG_FILE_NAME', None)
+    if log_file_name is not None:
+        file_handler = logging.FileHandler(log_file_name)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
