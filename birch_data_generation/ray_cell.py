@@ -8,8 +8,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 from PIL import Image
-from scipy.interpolate import CubicSpline, RegularGridInterpolator, griddata
+from scipy.interpolate import (CubicSpline, NearestNDInterpolator,
+                               RegularGridInterpolator, griddata)
 
+from .clocks import Clock
 from .fit_elipse import fit_elipse
 from .loggers import logger
 from .params import RayCellParams
@@ -355,16 +357,23 @@ class RayCell:
         # `keep` is only used in generate_small_fibers to basically reconstruct the array `x_ind`
         # Is it actually needed?
 
-    def generate_small_fibers(
+    @Clock('small_fibers')
+    def generate_small_fibers_(
             self,
             skip_fiber_column: npt.NDArray,
-            # x_ind: npt.NDArray,
-            # keep: npt.NDArray,
-            # ray_idx: npt.NDArray,
             indx_skip_all: npt.NDArray,
             input_volume: npt.NDArray
         ) -> npt.NDArray:
-        """Generate small fibers."""
+        """Generate small fibers.
+
+        Args:
+            skip_fiber_column (npt.NDArray): indexes of columns where not to generate fibers
+            indx_skip_all (npt.NDArray): indexes of grid where not to generate fibers
+            input_volume (npt.NDArray): input 3D gray-scale image volume to modify
+
+        Returns:
+            npt.NDArray: modified 3D gray-scale image volume with small fibers
+        """
         logger.info('=' * 80)
         logger.info('Generating small fibers...')
         vol_img_ref = np.copy(input_volume)
@@ -374,10 +383,7 @@ class RayCell:
 
         sie_x, sie_y, sie_z = self.params.size_im_enlarge
 
-        x_vector = self.params.x_vector
-        y_vector = self.params.y_vector
-        lx = len(x_vector)
-        ly = len(y_vector)
+        gx, gy = self.params.x_grid.shape
 
         neigh_loc = self.params.neighbor_local
 
@@ -387,19 +393,15 @@ class RayCell:
 
         num_fiber_end_loc = int(np.ceil(sie_z / cell_length)) + 7
 
-        # start = time.time()
-        for i in range(1, lx - 2, 2):
-        # for i in range(1, 6, 2):
-            logger.debug('  Small fibers: %d/%d', i, lx-2)
-            # print(f'Small fibers: {i}/{len(x_vector)-1}  dt:', time.time() - start)
-            # start = time.time()
-            for j in range(1, ly - 2, 2):
+        for i in range(1, gx - 2, 2):
+            logger.debug('  Small fibers: %d/%d', i, gx-2)
+            for j in range(1, gy - 2, 2):
                 if j in skip_fiber_column:
                     continue
                 # The arrangement of the cells should be staggered. So every four nodes,
                 # they should deviate along x direction.
                 i1 = i + ((j+1) % 4 == 0)
-                idx = i1 * ly + j
+                idx = i1 * gy + j
                 if idx in indx_skip_all:
                     # if this node exist on the surface of vessels, skip it.
                     continue
@@ -433,7 +435,7 @@ class RayCell:
 
                     for k in range(4):
                         # neigh_idx = len(x_vector) * (j + neigh_loc[1, k]) + i1 + neigh_loc[0, k]
-                        neigh_idx = idx + neigh_loc[0, k] * ly + neigh_loc[1, k]
+                        neigh_idx = idx + neigh_loc[0, k] * gy + neigh_loc[1, k]
                         point_coord[k, :] = [self.x_grid_all[neigh_idx, i_slice], self.y_grid_all[neigh_idx, i_slice]]
 
                     # make the elipse more elipse
@@ -478,6 +480,215 @@ class RayCell:
         vol_img_ref = np.clip(vol_img_ref, 0, 255)
 
         return vol_img_ref
+
+    @Clock('small_fibers')
+    def generate_small_fibers(
+            self,
+            skip_fiber_column: npt.NDArray,
+            indx_skip_all: npt.NDArray,
+            input_volume: npt.NDArray
+        ) -> npt.NDArray:
+        """Generate small fibers.
+
+        Args:
+            skip_fiber_column (npt.NDArray): indexes of columns where not to generate fibers
+            indx_skip_all (npt.NDArray): indexes of grid where not to generate fibers
+            input_volume (npt.NDArray): input 3D gray-scale image volume to modify
+
+        Returns:
+            npt.NDArray: modified 3D gray-scale image volume with small fibers
+        """
+        logger.info('=' * 80)
+        logger.info('Generating small fibers...')
+        vol_img_ref = np.copy(input_volume)
+
+        print('skip_fiber_column:', skip_fiber_column.shape)
+        print(skip_fiber_column)
+        skip_fiber_column = np.array(skip_fiber_column).flatten().astype(int)
+        skip_fiber_column = np.unique((skip_fiber_column[(skip_fiber_column % 2) == 1]) // 2)
+        print(skip_fiber_column)
+        # skip_fiber_column = set(int(_) for _ in skip_fiber_column.flatten())
+        indx_skip_all = indx_skip_all.flatten().astype(int)
+        sie_x, sie_y, sie_z = self.params.size_im_enlarge
+
+        gx, gy = self.params.x_grid.shape
+
+        neigh_loc = self.params.neighbor_local
+
+        cell_length = self.params.cell_length
+        cell_length_variance = self.params.cell_length_variance
+        cell_end_thick = self.params.cell_end_thick
+
+        num_fiber_end_loc = int(np.ceil(sie_z / cell_length)) + 7
+
+        x_grid_all = self.x_grid_all.reshape((gx, gy, sie_z))
+        y_grid_all = self.y_grid_all.reshape((gx, gy, sie_z))
+
+        lx = (gx - 2) // 2
+        ly = (gy - 2) // 2
+
+        x_all_0 = np.empty((lx, ly))
+        y_all_0 = np.empty_like(x_all_0)
+        x_all_1 = np.empty_like(x_all_0)
+        y_all_1 = np.empty_like(x_all_0)
+        x_all_2 = np.empty_like(x_all_0)
+        y_all_2 = np.empty_like(x_all_0)
+        x_all_3 = np.empty_like(x_all_0)
+        y_all_3 = np.empty_like(x_all_0)
+        x_all_4 = np.empty_like(x_all_0)
+        y_all_4 = np.empty_like(x_all_0)
+
+        skip_idx = []
+        for idx in indx_skip_all:
+            x = idx // gy
+            y = idx % gy
+            if x % 2 and y % 2:
+                skip_idx.append((x // 2, y // 2))
+        skip_idx = np.array(skip_idx)
+        print('skip_idx:', skip_idx.shape)
+
+        skip_cell_thick = 0  # TODO: Should this be a settable parameter?
+        # for i_slice in range(sie_z):
+        for i_slice in range(min(3, sie_z)):
+            start = time.time()
+            logger.debug('  Small fibers: %d/%d', i_slice, sie_z)
+            x_slice = x_grid_all[:,:, i_slice]
+            y_slice = y_grid_all[:,:, i_slice]
+            t_slice = self.thickness_all[:, i_slice]
+
+            # Assignments are split into [:, 0::2] and [1::2, :] to keep into account staggering along x direction
+            # every other row
+            # (0, 0)
+            x_all_0[:, 0::2] = x_slice[1:-2:2, 1:-2:4]
+            x_all_0[:, 1::2] = x_slice[2:-1:2, 3:-2:4]
+            y_all_0[:, 0::2] = y_slice[1:-2:2, 1:-2:4]
+            y_all_0[:, 1::2] = y_slice[2:-1:2, 3:-2:4]
+            # Neighbor (-1, 0)
+            x_all_1[:, 0::2] = x_slice[0:-3:2, 1:-2:4]
+            x_all_1[:, 1::2] = x_slice[1:-2:2, 3:-2:4]
+            y_all_1[:, 0::2] = y_slice[0:-3:2, 1:-2:4]
+            y_all_1[:, 1::2] = y_slice[1:-2:2, 3:-2:4]
+            # Neighbor (1, 0)
+            x_all_2[:, 0::2] = x_slice[2:-1:2, 1:-2:4]
+            x_all_2[:, 1::2] = x_slice[3:  :2, 3:-2:4]
+            y_all_2[:, 0::2] = y_slice[2:-1:2, 1:-2:4]
+            y_all_2[:, 1::2] = y_slice[3:  :2, 3:-2:4]
+            # Neighbor (0, -1)
+            x_all_3[:, 0::2] = x_slice[1:-2:2, 0:-3:4]
+            x_all_3[:, 1::2] = x_slice[2:-1:2, 2:-3:4]
+            y_all_3[:, 0::2] = y_slice[1:-2:2, 0:-3:4]
+            y_all_3[:, 1::2] = y_slice[2:-1:2, 2:-3:4]
+            # Neighbor (0, 1)
+            x_all_4[:, 0::2] = x_slice[1:-2:2, 2:-1:4]
+            x_all_4[:, 1::2] = x_slice[2:-1:2, 4:-1:4]
+            y_all_4[:, 0::2] = y_slice[1:-2:2, 2:-1:4]
+            y_all_4[:, 1::2] = y_slice[2:-1:2, 4:-1:4]
+
+            # This is after to properly do ellipse fit with neighbors and skip only based on centers
+            # x_slice[:, skip_fiber_column] = np.nan
+            # if len(skip_idx) > 0:
+            #     x_slice[skip_idx[:, 0], skip_idx[:, 1]] = np.nan
+
+            nxt = time.time()
+            print('COORDS:', nxt - start)
+            start = nxt
+
+            print(x_grid_all.shape, y_grid_all.shape)
+            print(x_all_1.shape, y_all_1.shape)
+
+            x = np.stack((x_all_1, x_all_2, x_all_3, x_all_4), axis=-1)
+            y = np.stack((y_all_1, y_all_2, y_all_3, y_all_4), axis=-1)
+            print(x.shape)
+            point_coords = np.stack((x, y), axis=-1)
+            if skip_cell_thick == 0:
+                point_coords[..., 1, 1] -= 2
+                point_coords[..., 3, 1] += 2
+
+            print(point_coords.shape)
+            print(np.concatenate((point_coords**2, point_coords), axis=-1).shape)
+
+            r1, r2, h, k = fit_elipse(point_coords)  # Estimate the coefficients of the ellipse.
+            print(r1.shape)
+
+            # r1[:, skip_fiber_column] = np.nan
+            # r2[:, skip_fiber_column] = np.nan
+            # Just set a very high value for h in nodes that should be ignored
+            h[:, skip_fiber_column] = 80000
+            if len(skip_idx) > 0:
+                h[skip_idx[:, 0], skip_idx[:, 1]] = 80000
+            # k[:, skip_fiber_column] = 80000
+            # r2[w] = np.nan
+            # h[w] = np.nan
+            # k[w] = np.nan
+
+            nxt = time.time()
+            print('ELLIPSE FIT:', nxt - start)
+            start = nxt
+
+            x_grid, y_grid = np.mgrid[0:sie_x, 0:sie_y]
+
+            # r1_grid = griddata(
+            #     (x_all_0.flatten(), y_all_0.flatten()), r1.flatten(),
+            #     (x_grid, y_grid),
+            #     method='nearest'
+            # )
+            r1_grid = NearestNDInterpolator(
+                (x_all_0.flatten(), y_all_0.flatten()), r1.flatten()
+            )(x_grid, y_grid)
+            nxt = time.time()
+            print('GRIDS1:', nxt - start)
+            start = nxt
+            r2_grid = griddata(
+                (x_all_0.flatten(), y_all_0.flatten()), r2.flatten(),
+                (x_grid, y_grid),
+                method='nearest'
+            )
+            nxt = time.time()
+            print('GRIDS2:', nxt - start)
+            start = nxt
+            h_grid = griddata(
+                (x_all_0.flatten(), y_all_0.flatten()), h.flatten(),
+                (x_grid, y_grid),
+                method='nearest'
+            )
+            nxt = time.time()
+            print('GRIDS3:', nxt - start)
+            start = nxt
+            k_grid = griddata(
+                (x_all_0.flatten(), y_all_0.flatten()), k.flatten(),
+                (x_grid, y_grid),
+                method='nearest'
+            )
+            nxt = time.time()
+            print('GRIDS4:', nxt - start)
+            start = nxt
+            t_grid = griddata(
+                (self.params.x_grid.flatten(), self.params.y_grid.flatten()), t_slice.flatten(),
+                (x_grid, y_grid),
+                method='nearest'
+            )
+            nxt = time.time()
+            print('GRIDS5:', nxt - start)
+            start = nxt
+
+            in_ellipse_2 = (
+                (x_grid - h_grid)**2 / (r1_grid - t_grid - skip_cell_thick)**2 +
+                (y_grid - k_grid)**2 / (r2_grid - t_grid - skip_cell_thick)**2
+            )
+            v_grid = 1 + np.exp(-(in_ellipse_2 - 1) * 20)
+
+
+            # TODO: implement skipping of (x,y) specific indexes
+            # Prob can just set the values of r1, r2, h, k to NaN or 0
+
+            # w = np.where(~np.isnan(v_grid))
+            # vol_img_ref[*w, i_slice] /= v_grid[*w]
+            vol_img_ref[..., i_slice] /= v_grid
+
+            print('UPDATE:', time.time() - start)
+            # break
+
+        return np.clip(vol_img_ref, 0, 255).astype(int)
 
     def generate_large_fibers(
             self,
@@ -978,7 +1189,7 @@ class RayCell:
         """Save 2D data to a TIFF file"""
         # print(np.where(np.isnan(data)))
         img = Image.fromarray(data.astype(np.uint8), mode='L')
-        # img.show()
+        img.show()
         img.save(filename)
 
     def save_distortion(self, u: npt.NDArray, v: npt.NDArray):
@@ -1039,6 +1250,7 @@ class RayCell:
         self.create_dirs()
         self.save_slice(vol_img_ref, 'volImgBackBone')
 
+        # sys.exit(0)
         # u1 and v1 are in a commented part of the code. Prob used in original code?
         u, v, _, _ = self.generate_deformation(ray_cell_x_ind, indx_skip_all, indx_vessel_cen)
         logger.debug('u.shape: %s  min/max: %s %s', u.shape, u.min(), u.max())
