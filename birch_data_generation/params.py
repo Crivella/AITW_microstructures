@@ -70,7 +70,14 @@ class RayCellParams:
 
     def __post_init__(self):
         """Post-initialization"""
-        self.save_slice = int(self.save_slice) - 1
+        ss = self.save_slice
+        if isinstance(ss, str):
+            ss = (int(ss) - 1,)
+        elif isinstance(ss, int):
+            ss = (ss - 1,)
+        elif isinstance(ss, (tuple, list)):
+            ss = tuple(int(s) - 1 for s in ss)
+        self.save_slice = ss
 
     @property
     def size_im(self):

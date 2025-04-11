@@ -260,7 +260,7 @@ class RayCell:
     def fiber_filter_in_vessel(self, vessel_all: npt.NDArray):
         """This function is used to remove the fibers in the vessels"""
         # lx = len(self.params.x_vector)
-        ly = len(self.params.y_vector)
+        # ly = len(self.params.y_vector)
         num_vess = vessel_all.shape[0]  # (num_vess, 2)
 
         indx_skip_all = np.empty((num_vess, 6, 2), dtype=int)
@@ -285,12 +285,15 @@ class RayCell:
             (+3, +1)
         ]
 
-        indx_skip_all = indx_skip_all[:,:,0] * ly + indx_skip_all[:,:,1]
-        indx_vessel = indx_vessel[:,:,0] * ly + indx_vessel[:,:,1]
+        # indx_skip_all = indx_skip_all[:,:,0] * ly + indx_skip_all[:,:,1]
+        # indx_vessel = indx_vessel[:,:,0] * ly + indx_vessel[:,:,1]
 
-        indx_vessel_cen = vessel_all[:, 0] * ly + vessel_all[:, 1]
+        # indx_vessel_cen = vessel_all[:, 0] * ly + vessel_all[:, 1]
 
-        return indx_skip_all.astype(int), indx_vessel.astype(int), indx_vessel_cen.astype(int)
+        indx_skip_all = indx_skip_all.reshape(-1, 2)
+        indx_vessel = indx_vessel.reshape(-1, 2)
+
+        return indx_skip_all.astype(int), indx_vessel.astype(int), vessel_all.astype(int)
 
     def distrbute_ray_cells(self, ray_cell_x_ind_all: npt.NDArray) -> tuple[
             npt.NDArray,
@@ -545,22 +548,30 @@ class RayCell:
         lx = (gx - 2) // 2
         ly = (gy - 2) // 2
 
-
         skip_idx = []
-        for idx in indx_skip_all.flatten().astype(int):
-            x = idx // gy
-            y = idx % gy
-            if x % 2 and y % 2:
-                skip_idx.append((x // 2, y // 2))
+        for ix, iy in indx_skip_all.reshape(-1, 2):
+            if iy % 2 == 0:
+                continue
+            if (iy + 1) % 4 == 0:
+                ix += 1
+            if ix % 2 == 0:
+                continue
+            skip_idx.append((ix // 2, iy // 2))
         skip_idx = np.array(skip_idx)
+        # for idx in indx_skip_all.flatten().astype(int):
+        #     x = idx // gy
+        #     y = idx % gy
+        #     if x % 2 and y % 2:
+        #         skip_idx.append((x // 2, y // 2))
+        # skip_idx = np.array(indx_skip_all)
 
         point_coords = np.empty((lx, ly, 4, 2))
         t_all = np.empty((lx, ly))
         skip_cell_thick = 0  # TODO: Should this be a settable parameter?
         # for i_slice in range(sie_z):
-        for i_slice in range(4):
-            if i_slice % 10 == 0:
-                logger.debug('  Small fibers: %d/%d', i_slice, sie_z)
+        for i_slice in self.params.save_slice:
+            # if i_slice % 10 == 0:
+            logger.debug('  Small fibers: %d/%s', i_slice, self.params.save_slice)
             x_slice = x_grid_all[:,:, i_slice]
             y_slice = y_grid_all[:,:, i_slice]
             t_slice = thick_all[:,:, i_slice]
@@ -629,6 +640,8 @@ class RayCell:
 
         x_vector = self.params.x_vector
         y_vector = self.params.y_vector
+
+        # TODO: !!! ensire index_vessel_* use the (n_idx, 2) shapes
 
         ly = len(y_vector)
 
@@ -927,8 +940,6 @@ class RayCell:
 
         ray_column_rand = int(np.round(1 / 2 * ray_height))
 
-        slices = self.params.save_slice
-
         for m2, j_slice in enumerate(ray_width):
             logger.debug('  %d/%d   %d', m2, len(ray_width), j_slice)
             k0 = j_slice
@@ -951,6 +962,9 @@ class RayCell:
 
                 if t < 0 or t >= sie_z - 11:
                     continue
+                if t not in self.params.save_slice:
+                    continue
+
 
                 vel = vessel_end_loc[i]
                 vel = vel[vel <= sie_x + rcl_d2]
@@ -1051,7 +1065,7 @@ class RayCell:
 
         return vol_img_ref_final
 
-    def generate_deformation(self, ray_cell_idx: npt.NDArray, idx_skip_all: npt.NDArray, idx_vessel_cen: npt.NDArray):
+    def generate_deformation_(self, ray_cell_idx: npt.NDArray, indx_skip_all: npt.NDArray, idx_vessel_cen: npt.NDArray):
         """Add complicated deformation to the volume image. The deformation fields are generated separately.
         Then, they are summed together. Here u, v are initialized to be zero. Then they are summed."""
         logger.info('=' * 80)
@@ -1063,7 +1077,7 @@ class RayCell:
         lx = len(x_vector)
         ly = len(y_vector)
 
-        idx_skip_all = set(int(_) for _ in idx_skip_all.flatten())
+        indx_skip_all = set(int(_) for _ in indx_skip_all.flatten())
 
         x,y = np.meshgrid(np.arange(sie_x), np.arange(sie_y), indexing='ij')
         u = np.zeros_like(x, dtype=float)
@@ -1072,15 +1086,15 @@ class RayCell:
         v1 = np.zeros_like(x, dtype=float)
 
         # TODO: work with 3D grid
-        x_grid_all = self.x_grid_all.reshape(-1, sie_z)
-        y_grid_all = self.y_grid_all.reshape(-1, sie_z)
+        x_grid_all = self.x_grid_all
+        y_grid_all = self.y_grid_all
 
         for i in range(1, lx-1, 2):
             logger.debug('  i: %d/%d', i, lx-1)
             for j in range(1, ly-1, 2):
                 i1 = i + ((j+1) % 4 == 0)
                 idx = i1 * ly + j
-                if idx in idx_skip_all:
+                if idx in indx_skip_all:
                     continue
                 # print(f'  j: {j} / {ly}')
                 mm = np.min(abs(j - ray_cell_idx))
@@ -1088,7 +1102,7 @@ class RayCell:
                 is_close_to_ray_far = mm <= 8
 
                 vessel_idx = np.where(idx == idx_vessel_cen)[0]
-                pcx, pcy = x_grid_all[idx, 0], y_grid_all[idx, 0]
+                pcx, pcy = x_grid_all[i1, j, 0], y_grid_all[i1, j, 0]
                 if len(vessel_idx) == 0:
                     # Small fibers
                     if is_close_to_ray:
@@ -1131,11 +1145,127 @@ class RayCell:
 
         return u, v, u1, v1
 
+    def generate_deformation(self, ray_cell_idx: npt.NDArray, indx_skip_all: npt.NDArray, idx_vessel_cen: npt.NDArray):
+        """Add complicated deformation to the volume image. The deformation fields are generated separately.
+        Then, they are summed together. Here u, v are initialized to be zero. Then they are summed."""
+        logger.info('=' * 80)
+        logger.info('Generating deformation...')
+        sie_x, sie_y, _ = self.params.size_im_enlarge
+
+        lx, ly, _ = self.x_grid_all.shape
+        gx, gy = self.params.x_grid.shape
+
+
+        x, y = np.mgrid[:sie_x, :sie_y]
+        u = np.zeros_like(x, dtype=float)
+        v = np.zeros_like(x, dtype=float)
+        u1 = np.zeros_like(x, dtype=float)
+        v1 = np.zeros_like(x, dtype=float)
+
+        # TODO: work with 3D grid
+        x_grid_all = self.x_grid_all
+        y_grid_all = self.y_grid_all
+
+        lx = (gx - 1) // 2
+        ly = (gy - 1) // 2
+
+        x_slice = x_grid_all[:, :, 0]
+        y_slice = y_grid_all[:, :, 0]
+
+        # TODO: check if this condition can be enforced geometrically
+        skip_idx = set()
+        for ix, iy in indx_skip_all.reshape(-1, 2):
+            if iy % 2 == 0:
+                continue
+            if (iy + 1) % 4 == 0:
+                ix += 1
+            if ix % 2 == 0:
+                continue
+            skip_idx.add((x_slice[ix, iy], y_slice[ix, iy]))
+        # skip_idx = np.array(skip_idx)
+        # skip_idx = np.array(idx_skip_all)
+
+        x_app = np.empty((lx, ly))
+        y_app = np.empty_like(x_app)
+        x_app[:, 0::2] = x_slice[1:-1:2, 1:-1:4]
+        x_app[:, 1::2] = x_slice[2:  :2, 3:-1:4]
+        y_app[:, 0::2] = y_slice[1:-1:2, 1:-1:4]
+        y_app[:, 1::2] = y_slice[2:  :2, 3:-1:4]
+
+        is_close_to_ray = np.zeros_like(x_app, dtype=bool)
+        is_close_to_ray_far = np.zeros_like(x_app, dtype=bool)
+
+        cond = np.zeros_like(x_app, dtype=bool)
+
+        # idx_vessel_cen: (num_vessels, 2)
+        # TODO: this needs to account for staggering !!!!
+        for xc, yc in idx_vessel_cen:
+            if xc % 2 == 0 and yc % 2 == 0:
+                continue
+            cond[xc // 2, yc // 2] = True
+
+        for j in range(1, ly - 1, 2):
+            mm = np.min(abs(j - ray_cell_idx))
+            is_close_to_ray[:, j // 2] = mm <= 4
+            is_close_to_ray_far[:, j // 2] = mm <= 8
+
+        k_grid = np.empty((lx, ly, 4))
+
+        sign = np.sign(np.random.randn(lx, ly))
+        k_grid[~cond, 0] = 0.08
+        k_grid[~cond, 1] = 0.06
+        rnd = np.random.rand(lx, ly)
+        k_grid[~cond, 2] = 2 + rnd[~cond]
+        rnd = np.random.rand(lx, ly)
+        k_grid[~cond, 3] = 1 + rnd[~cond]
+        w = ~cond & is_close_to_ray
+        k_grid[w, 3] *= 0.3
+
+        k_grid[cond, 0] = 0.06
+        k_grid[cond, 1] = 0.055
+        k_grid[cond, 2] = 2
+        k_grid[cond, 3] = 3 + 5 * np.random.rand(lx, ly)[cond]
+        k_grid[cond & ~is_close_to_ray_far, 3] = 15
+
+        for xc, yc, k, s in zip(x_app.flatten(), y_app.flatten(), k_grid.reshape(-1, 4), sign.flatten()):
+            if (xc, yc) in skip_idx:
+                continue
+            u += -s * local_distort(x, y, xc, yc, k)
+
+        logger.info('u shape: %s', u.shape)
+
+        rnd = np.random.rand(lx, ly)
+        k_grid[~cond, 2] = 2 + rnd[~cond]
+        rnd = np.random.rand(lx, ly)
+        k_grid[~cond, 3] = 1 + rnd[~cond]
+        w = ~cond & is_close_to_ray
+        k_grid[w, 3] *= 0.3
+
+        for xc, yc, k, s in zip(x_app.flatten(), y_app.flatten(), k_grid.reshape(-1, 4), sign.flatten()):
+            if (xc, yc) in skip_idx:
+                continue
+            v += -s * local_distort(y, x, yc, xc, k)
+
+        logger.info('v shape: %s', v.shape)
+
+        for xc, yc, cf in zip(x_app.flatten(), y_app.flatten(), is_close_to_ray_far.flatten()):
+            if np.random.rand() >= 0.01:
+                continue
+            k = [0.01, 0.008, 1.5 * (1 + np.random.rand()), 0.2 * (1 + np.random.rand())]
+            if not cf:
+                k[3] *= 2.5
+            if np.random.randn() > 0:
+                u1 += np.sign(np.random.randn()) * local_distort(x, y, xc, yc, k)
+            else:
+                v1 += np.sign(np.random.randn()) * local_distort(y, x, yc, xc, k)
+
+        return u, v, u1, v1
+
     def ray_cell_shrinking(self, width: npt.NDArray, idx_all: npt.NDArray, dist_v: npt.NDArray) -> npt.NDArray:
         """Shrink the ray cell width"""
         logger.info('=' * 80)
         logger.info('Ray cell shrinking...')
-        grid_shape = self.params.x_grid.shape
+        # grid_shape = self.params.x_grid.shape
         # y_vector = self.params.y_vector
         x_grid_all = self.x_grid_all
         y_grid_all = self.y_grid_all
@@ -1146,123 +1276,117 @@ class RayCell:
 
         ray_height = self.params.ray_height
         ray_size = self.params.cell_r - cell_thick / 2
-        slice_idx = self.params.save_slice
+        # slice_idx = self.params.save_slice
         # TODO: need to implement slice_idx with multiple indexes
         # I think this was reused from some other code because when the output array
         # is used it assumes it does not have a third dimension (or that it is always 1)
-
-        # thick_left = thickness_all[:, slice_idx]
-        x_node_grid = x_grid_all[..., slice_idx]
-        y_node_grid = y_grid_all[..., slice_idx]
-        logger.debug('x_node_grid.shape: %s', x_node_grid.shape)
-        # print('y_node_grid.shape:', y_node_grid.shape)
-        # thick_node_grid = thick_left.reshape(*grid_shape)
-
-        _, y_grid = np.mgrid[0:sie_x, 0:sie_y]
 
         cnt = defaultdict(int)
         for idx in idx_all.flatten():
             cnt[int(idx)] += 1
         # idx_all = set(int(_) for _ in idx_all.flatten())
 
-        base_k = 0
         dx = np.arange(sie_x, dtype=int)
-        v_all = np.zeros((sie_x, sie_y), dtype=float)
+        _, y_grid = np.mgrid[0:sie_x, 0:sie_y]
 
-        for key in cnt.keys():
-            coeff1 = np.ones(sie_z)
-            coeff2 = np.zeros(sie_z)
-            v1 = np.zeros_like(y_grid, dtype=float)
-            v2 = np.zeros_like(y_grid, dtype=float)
+        v_all = np.zeros((sie_x, sie_y, len(self.params.save_slice)), dtype=float)
+        for i, slice_idx in enumerate(self.params.save_slice):
+            x_node_grid = x_grid_all[..., slice_idx]
+            y_node_grid = y_grid_all[..., slice_idx]
+            logger.debug('x_node_grid.shape: %s', x_node_grid.shape)
 
-            # indicator = []
-            v1_all = None
-            v2_all = None
+            base_k = 0
 
-            logger.debug('  Ray cell shrinking: key = %d  cnt[key] = %d', key, cnt[key])
-            # TODO: check does this relies on the fact that idx_all should be ordered?
-            for key_cnt in range(cnt[key]):
-                k = base_k + key_cnt
-                idx = idx_all[k]
+            for key in cnt.keys():
+                coeff1 = np.ones(sie_z)
+                coeff2 = np.zeros(sie_z)
+                v1 = np.zeros_like(y_grid, dtype=float)
+                v2 = np.zeros_like(y_grid, dtype=float)
 
-                # print('  ', idx, x_node_grid[:, idx].shape, y_node_grid[:, idx].shape, dx.shape)
-                logger.debug(f'  {idx=} {x_node_grid[:, idx].shape=} {y_node_grid[:, idx].shape=} {dx.shape=}')
-                y_node_grid_1 = CubicSpline(x_node_grid[:, idx], y_node_grid[:, idx])(dx)
-                y_node_grid_2 = CubicSpline(x_node_grid[:, idx + 2], y_node_grid[:, idx + 2])(dx)
+                # indicator = []
+                v1_all = None
+                v2_all = None
 
-                # indv1 = (dx * sie_y + np.round(y_node_grid_1)).astype(int)
-                # indv2 = (dx * sie_y + np.round(y_node_grid_2)).astype(int)
+                logger.debug('  Ray cell shrinking: key = %d  cnt[key] = %d', key, cnt[key])
+                # TODO: check does this relies on the fact that idx_all should be ordered?
+                for key_cnt in range(cnt[key]):
+                    k = base_k + key_cnt
+                    idx = idx_all[k]
 
-                v_node_grid_1 = dist_v[dx, np.round(y_node_grid_1).astype(int)]
-                v_node_grid_2 = dist_v[dx, np.round(y_node_grid_2).astype(int)]
+                    logger.debug(f'  {idx=} {x_node_grid[:, idx].shape=} {y_node_grid[:, idx].shape=} {dx.shape=}')
+                    y_node_grid_1 = CubicSpline(x_node_grid[:, idx], y_node_grid[:, idx])(dx)
+                    y_node_grid_2 = CubicSpline(x_node_grid[:, idx + 2], y_node_grid[:, idx + 2])(dx)
 
-                R = (y_node_grid_2 + v_node_grid_2 - y_node_grid_1 - v_node_grid_1) / 2 - cell_thick / 2 + 1
-                y_center = (y_node_grid_2 + y_node_grid_1) / 2
+                    v_node_grid_1 = dist_v[dx, np.round(y_node_grid_1).astype(int)]
+                    v_node_grid_2 = dist_v[dx, np.round(y_node_grid_2).astype(int)]
 
-                for j in range(sie_x):
-                    idx = np.arange(
-                        max(cell_thick / 2, np.round(y_center[j] - R[j])),
-                        min(y_center[j] + R[j], sie_y - cell_thick / 2 + 1) + 1,
-                        dtype=int
-                    )
-                    if len(idx) > 2:
-                        v1[j, idx] = -(idx - y_center[j])
-                        v1[j, 0:idx[0]] = R[j]
-                        v1[j, idx[-1]:] = -R[j]
+                    R = (y_node_grid_2 + v_node_grid_2 - y_node_grid_1 - v_node_grid_1) / 2 - cell_thick / 2 + 1
+                    y_center = (y_node_grid_2 + y_node_grid_1) / 2
 
-                min_idx_1 = np.max((1, np.round(np.min(width[k]) + ray_size))) - 1
-                max_idx_1 = np.min((np.round(np.max(width[k]) + ray_height - ray_size), sie_z)) - 1
+                    for j in range(sie_x):
+                        idx = np.arange(
+                            max(cell_thick / 2, np.round(y_center[j] - R[j])),
+                            min(y_center[j] + R[j], sie_y - cell_thick / 2 + 1) + 1,
+                            dtype=int
+                        )
+                        if len(idx) > 2:
+                            v1[j, idx] = -(idx - y_center[j])
+                            v1[j, 0:idx[0]] = R[j]
+                            v1[j, idx[-1]:] = -R[j]
 
-                idx_1 = []
-                if max_idx_1 - min_idx_1  > 10:
-                    idx_1 = np.arange(min_idx_1, max_idx_1 + 1, dtype=int)
+                    min_idx_1 = np.max((1, np.round(np.min(width[k]) + ray_size))) - 1
+                    max_idx_1 = np.min((np.round(np.max(width[k]) + ray_height - ray_size), sie_z)) - 1
 
-                min_idx_3 = np.max((1, np.round(np.min(width[k]) - 3*ray_size))) - 1
-                max_idx_3 = np.min((np.round(np.min(width[k]) + 1*ray_size), sie_z)) - 1
-                idx_3 = []
-                if max_idx_3 - min_idx_3 > 10:
-                    idx_3 = np.arange(min_idx_3, max_idx_3 + 1, dtype=int)
+                    idx_1 = []
+                    if max_idx_1 - min_idx_1  > 10:
+                        idx_1 = np.arange(min_idx_1, max_idx_1 + 1, dtype=int)
 
-                min_idx_4 = np.max((1, np.round(np.max(width[k]) + ray_height - ray_size))) - 1
-                max_idx_4 = np.min((np.round(np.max(width[k]) + ray_height + 3*ray_size), sie_z)) - 1
-                idx_4 = []
-                if max_idx_4 - min_idx_4 > 10:
-                    idx_4 = np.arange(min_idx_4, max_idx_4 + 1, dtype=int)
+                    min_idx_3 = np.max((1, np.round(np.min(width[k]) - 3*ray_size))) - 1
+                    max_idx_3 = np.min((np.round(np.min(width[k]) + 1*ray_size), sie_z)) - 1
+                    idx_3 = []
+                    if max_idx_3 - min_idx_3 > 10:
+                        idx_3 = np.arange(min_idx_3, max_idx_3 + 1, dtype=int)
 
-                coeff1[idx_1] = 0
-                coeff2[idx_1] = 1
+                    min_idx_4 = np.max((1, np.round(np.max(width[k]) + ray_height - ray_size))) - 1
+                    max_idx_4 = np.min((np.round(np.max(width[k]) + ray_height + 3*ray_size), sie_z)) - 1
+                    idx_4 = []
+                    if max_idx_4 - min_idx_4 > 10:
+                        idx_4 = np.arange(min_idx_4, max_idx_4 + 1, dtype=int)
 
-                if len(idx_3) > 5:
-                    coeff1[idx_3] = np.arange(len(idx_3)-1, -1, -1) / np.round(4 * ray_size)
-                    coeff2[idx_3] = np.arange(len(idx_3)) / np.round(4 * ray_size)
-                if len(idx_4) > 5:
-                    coeff1[idx_4] = np.arange(len(idx_4)) / np.round(4 * ray_size)
-                    coeff2[idx_4] = np.arange(len(idx_4)-1, -1, -1) / np.round(4 * ray_size)
+                    coeff1[idx_1] = 0
+                    coeff2[idx_1] = 1
 
-                for j in range(sie_x):
-                    temp2 = 2 * R[j] * (1 / (1 + np.exp(0.02 * (y_grid[j,:] - y_center[j] + R[j]))) - 0.5)
-                    v2[j, :int(y_center[j] - R[j])] = temp2[:int(y_center[j] - R[j])]
-                    temp2 = 2 * R[j] * (1 / (1 + np.exp(0.02 * (y_grid[j,:] - y_center[j] - R[j]))) - 0.5)
-                    v2[j, int(y_center[j] + R[j]):] = temp2[int(y_center[j] + R[j]):]
+                    if len(idx_3) > 5:
+                        coeff1[idx_3] = np.arange(len(idx_3)-1, -1, -1) / np.round(4 * ray_size)
+                        coeff2[idx_3] = np.arange(len(idx_3)) / np.round(4 * ray_size)
+                    if len(idx_4) > 5:
+                        coeff1[idx_4] = np.arange(len(idx_4)) / np.round(4 * ray_size)
+                        coeff2[idx_4] = np.arange(len(idx_4)-1, -1, -1) / np.round(4 * ray_size)
 
-                # Take either the last one with this condition or the first one at all
-                # The use of indicator[t] with [~,indx_sort] = sort(indicator, 'descend') will preserve the order
-                # according to the matlab documentation (meaning) that it is taking either the first indicator[t] == 1
-                # or the first indicator[t] == 0
-                if slice_idx < max_idx_4 and slice_idx > min_idx_1:
-                    v1_all = v1
-                    v2_all = v2
-                    break
-                elif v1_all is None:
-                    v1_all = v1
-                    v2_all = v2
+                    for j in range(sie_x):
+                        temp2 = 2 * R[j] * (1 / (1 + np.exp(0.02 * (y_grid[j,:] - y_center[j] + R[j]))) - 0.5)
+                        v2[j, :int(y_center[j] - R[j])] = temp2[:int(y_center[j] - R[j])]
+                        temp2 = 2 * R[j] * (1 / (1 + np.exp(0.02 * (y_grid[j,:] - y_center[j] - R[j]))) - 0.5)
+                        v2[j, int(y_center[j] + R[j]):] = temp2[int(y_center[j] + R[j]):]
 
-            base_k += cnt[key]
-            v_all[:, :] += coeff1[slice_idx] * v1_all + coeff2[slice_idx] * v2_all
+                    # Take either the last one with this condition or the first one at all
+                    # The use of indicator[t] with [~,indx_sort] = sort(indicator, 'descend') will preserve the order
+                    # according to the matlab documentation (meaning) that it is taking either the first indicator[t] == 1
+                    # or the first indicator[t] == 0
+                    if slice_idx < max_idx_4 and slice_idx > min_idx_1:
+                        v1_all = v1
+                        v2_all = v2
+                        break
+                    elif v1_all is None:
+                        v1_all = v1
+                        v2_all = v2
+
+                base_k += cnt[key]
+                v_all[:, :, i] += coeff1[slice_idx] * v1_all + coeff2[slice_idx] * v2_all
 
         return v_all
 
-    def apply_deformation(self, vol_img_ref: npt.NDArray, u: npt.NDArray, v: npt.NDArray) -> npt.NDArray:
+    def apply_deformation(self, slice_ref: npt.NDArray, u: npt.NDArray, v: npt.NDArray) -> npt.NDArray:
         """Apply the deformation to the volume image"""
         logger.info('=' * 80)
         logger.info('Applying deformation...')
@@ -1273,7 +1397,7 @@ class RayCell:
 
         Vq = griddata(
             (x_interp.flatten(), y_interp.flatten()),
-            vol_img_ref[:,:,self.params.save_slice].flatten(),
+            slice_ref.flatten(),
             (x_grid, y_grid),
             method='linear'
         )
@@ -1299,14 +1423,14 @@ class RayCell:
 
     def save_slice(self, vol_img_ref: npt.NDArray, dirname: str):
         """Save the requested slice of the generated volume image"""
-        save_slice = self.params.save_slice
-        filename = os.path.join(self.root_dir, dirname, f'volImgRef_{save_slice+1:05d}.tiff')
-
-        logger.debug('Saving slice %d to %s', save_slice, filename)
         logger.debug('vol_img_ref.shape: %s', vol_img_ref.shape)
         logger.debug('min/max: %f %f', np.min(vol_img_ref), np.max(vol_img_ref))
+        for slice_idx in self.params.save_slice:
+            filename = os.path.join(self.root_dir, dirname, f'volImgRef_{slice_idx+1:05d}.tiff')
 
-        self.save_2d_img(vol_img_ref[:, :, save_slice], filename)
+            logger.debug('Saving slice %d to %s', slice_idx, filename)
+
+            self.save_2d_img(vol_img_ref[:, :, slice_idx], filename)
 
     @staticmethod
     def save_2d_img(data: npt.NDArray, filename: str):
@@ -1316,10 +1440,10 @@ class RayCell:
         img.show()
         img.save(filename)
 
-    def save_distortion(self, u: npt.NDArray, v: npt.NDArray):
+    def save_distortion(self, u: npt.NDArray, v: npt.NDArray, slice_idx: int):
         """Save the distortion fields"""
-        u_name = os.path.join(self.root_dir, 'LocalDistVolumeDispU', f'u_volImgRef_{self.params.save_slice:05d}.csv')
-        v_name = os.path.join(self.root_dir, 'LocalDistVolumeDispV', f'v_volImgRef_{self.params.save_slice:05d}.csv')
+        u_name = os.path.join(self.root_dir, 'LocalDistVolumeDispU', f'u_volImgRef_{slice_idx+1:05d}.csv')
+        v_name = os.path.join(self.root_dir, 'LocalDistVolumeDispV', f'v_volImgRef_{slice_idx+1:05d}.csv')
         np.savetxt(u_name, np.round(u, decimals=4), delimiter=',')
         np.savetxt(v_name, np.round(v, decimals=4), delimiter=',')
 
@@ -1382,12 +1506,13 @@ class RayCell:
 
         np.save('x_grid_all.npy', self.x_grid_all)
         np.save('y_grid_all.npy', self.y_grid_all)
-        np.save('vol_img_ref.npy', vol_img_ref)
+        np.save('vol_img_ref_slices.npy', vol_img_ref[..., self.params.save_slice])
         np.save('u.npy', u)
         np.save('v.npy', v)
+
         if self.params.is_exist_ray_cell:
             v_all_ray = self.ray_cell_shrinking(ray_cell_width, ray_cell_x_ind_all_update, v)
-            v += v_all_ray[:,:]
+            v = v[..., np.newaxis] + v_all_ray
             logger.debug('vray   : %s  min/max: %s %s', v_all_ray.shape, v_all_ray.min(), v_all_ray.max())
             logger.debug('v.shape: %s  min/max: %s %s', v.shape, v.min(), v.max())
             np.save('v_all_ray.npy', v_all_ray)
@@ -1395,13 +1520,21 @@ class RayCell:
             v_all_ray = np.zeros_like(v)
             np.save('v_all_ray.npy', v_all_ray)
 
-        self.save_distortion(u, v)
+        for i, slice_idx in enumerate(self.params.save_slice):
+            logger.debug('Saving deformation for slice %d', slice_idx)
+            self.save_distortion(u, v[..., i], slice_idx)
 
-        img_interp = self.apply_deformation(vol_img_ref, u, v)
+            img_interp = self.apply_deformation(vol_img_ref[..., slice_idx], u, v[..., i])
 
-        np.save('img_interp.npy', img_interp)
+            filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
+            self.save_2d_img(img_interp, filename)
+        # self.save_distortion(u, v)
 
-        filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{self.params.save_slice+1:05d}.tiff')
-        self.save_2d_img(img_interp, filename)
+        # img_interp = self.apply_deformation(vol_img_ref, u, v)
+
+        # np.save('img_interp.npy', img_interp)
+
+        # filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{self.params.save_slice+1:05d}.tiff')
+        # self.save_2d_img(img_interp, filename)
 
         logger.info('======== DONE ========')
