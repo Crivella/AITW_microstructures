@@ -88,75 +88,13 @@ class RayCell:
 
         return x_grid_all, y_grid_all, thickness_all
 
-    # Test with RegularGridInterpolator
-    def get_grid_all_(self):
-        """Specify the location of grid nodes and the thickness (with disturbance)"""
-        slice_interest = np.arange(0, self.params.size_im_enlarge[2], self.params.slice_interest_space)
-
-        l = len(slice_interest)
-
-        sie_z = self.params.size_im_enlarge[2]
-
-        x_vector = self.params.x_vector
-        y_vector = self.params.y_vector
-
-        gx, gy = self.params.x_grid.shape
-
-        shape_3d = (gx, gy, l)
-
-        x_grid = self.params.x_grid#.flatten()
-        y_grid = self.params.y_grid#.flatten()
-
-        x_grid_interp = np.random.rand(*shape_3d) * 3 - 1.5 + x_grid[:,:,np.newaxis]
-        y_grid_interp = np.random.rand(*shape_3d) * 3 - 1.5 + y_grid[:,:,np.newaxis]
-        thickness_interp = np.random.rand(*shape_3d) + self.params.cell_wall_thick - 0.5
-
-        interp_z = np.arange(sie_z)
-        x, y, z = x_vector, y_vector, slice_interest
-        Xi, Yi, Zi = np.meshgrid(x_vector, y_vector, interp_z, indexing='ij')
-
-        logger.debug(f'Xi: {Xi.shape}, Yi: {Yi.shape}, Zi: {Zi.shape}')
-        logger.debug(f'x_grid_interp: {x_grid_interp.shape}')
-
-        interp = RegularGridInterpolator(
-            (x, y, z), x_grid_interp.reshape(shape_3d),
-            bounds_error=False, method='cubic'
-        )
-        x_grid_all = interp(np.stack((Xi, Yi, Zi), axis=-1))
-        interp = RegularGridInterpolator(
-            (x, y, z), y_grid_interp.reshape(shape_3d),
-            bounds_error=False, method='cubic'
-        )
-        y_grid_all = interp(np.stack((Xi, Yi, Zi), axis=-1))
-        interp = RegularGridInterpolator(
-            (x, y, z), thickness_interp.reshape(shape_3d),
-            bounds_error=False, method='cubic'
-        )
-        thickness_all = interp(np.stack((Xi, Yi, Zi), axis=-1))
-
-        logger.debug(f'x_grid_all: {x_grid_all.shape}')
-        logger.debug(f'y_grid_all: {y_grid_all.shape}')
-        logger.debug(f'thickness_all: {thickness_all.shape}')
-        logger.debug(f'x_grid_all[:,44,359]: {x_grid_all[:,44,359]}')
-
-
-        self.x_grid_all = x_grid_all
-        self.y_grid_all = y_grid_all
-        self.thickness_all = thickness_all
-
-        return x_grid_all, y_grid_all, thickness_all
-
     def get_ray_cell_indexes(self) -> npt.NDArray:
         """Get ray cell indexes"""
         ray_cell_x_ind_all = np.empty((1, 0))
         if self.params.is_exist_ray_cell:
-            # TODO: Check if the range here should be 9, -10
-            # ray_cell_linspace = np.arange(10, len(self.params.y_vector) - 9, self.params.ray_space)
             ray_cell_linspace = np.arange(9, len(self.params.y_vector) - 10, self.params.ray_space)
             ray_cell_x_ind_all = ray_cell_linspace + np.random.rand(len(ray_cell_linspace)) * 10 - 5
-            # ray_cell_x_ind_all = np.floor(ray_cell_x_ind_all / 2) * 2 + 1
             ray_cell_x_ind_all = np.floor(ray_cell_x_ind_all / 2) * 2
-            # ray_cell_x_ind_all = ray_cell_x_ind_all // 2  # + 1 array not 1-indexed
 
         return ray_cell_x_ind_all.astype(int)
 
@@ -365,133 +303,6 @@ class RayCell:
             np.array(x_ind_all_update, dtype=int)
         )
 
-        # `keep` is only used in generate_small_fibers to basically reconstruct the array `x_ind`
-        # Is it actually needed?
-
-    @Clock('small_fibers')
-    def generate_small_fibers_(
-            self,
-            skip_fiber_column: npt.NDArray,
-            indx_skip_all: npt.NDArray,
-            input_volume: npt.NDArray
-        ) -> npt.NDArray:
-        """Generate small fibers.
-
-        Args:
-            skip_fiber_column (npt.NDArray): indexes of columns where not to generate fibers
-            indx_skip_all (npt.NDArray): indexes of grid where not to generate fibers
-            input_volume (npt.NDArray): input 3D gray-scale image volume to modify
-
-        Returns:
-            npt.NDArray: modified 3D gray-scale image volume with small fibers
-        """
-        logger.info('=' * 80)
-        logger.info('Generating small fibers...')
-        vol_img_ref = np.copy(input_volume)
-
-        skip_fiber_column = set(int(_) for _ in skip_fiber_column.flatten())
-        indx_skip_all = set(int(_) for _ in indx_skip_all.flatten())
-
-        sie_x, sie_y, sie_z = self.params.size_im_enlarge
-
-        gx, gy = self.params.x_grid.shape
-
-        neigh_loc = self.params.neighbor_local
-
-        cell_length = self.params.cell_length
-        cell_length_variance = self.params.cell_length_variance
-        cell_end_thick = self.params.cell_end_thick
-
-        num_fiber_end_loc = int(np.ceil(sie_z / cell_length)) + 7
-
-        for i in range(1, gx - 2, 2):
-            logger.debug('  Small fibers: %d/%d', i, gx-2)
-            for j in range(1, gy - 2, 2):
-                if j in skip_fiber_column:
-                    continue
-                # The arrangement of the cells should be staggered. So every four nodes,
-                # they should deviate along x direction.
-                i1 = i + ((j+1) % 4 == 0)
-                idx = i1 * gy + j
-                if idx in indx_skip_all:
-                    # if this node exist on the surface of vessels, skip it.
-                    continue
-
-                initial = np.round(np.random.rand() * cell_length)
-                fiber_end_loc_all = [initial,]
-
-                for _ in range(num_fiber_end_loc):
-                    temp = np.clip(cell_length + np.random.randn() * cell_length_variance, 100, 3*cell_length)
-                    fiber_end_loc_all.append(np.round(fiber_end_loc_all[-1] + temp))
-                fiber_end_loc_all = np.array(fiber_end_loc_all)
-
-                # This is a manually given value. To increase the randomness
-                fiber_end_loc = fiber_end_loc_all - 4 * cell_length + 1
-                # The end of the vessel should be inside the volume.
-                fiber_end_loc = fiber_end_loc[(fiber_end_loc >= 4) & (fiber_end_loc <= sie_z - 4)]
-
-                fiber_end = np.empty((0, fiber_end_loc.size))
-                for k in range(cell_end_thick):
-                    fiber_end = np.vstack((fiber_end, fiber_end_loc + k))
-                fiber_end = set(int(_) for _ in fiber_end.flatten())
-
-                # Skip some fibers
-                skip_cell_thick = 0  # TODO: Should this be a settable parameter?
-                for i_slice in range(sie_z):
-                    if i_slice in fiber_end:
-                        # if this slice is not the end of this cell inside the lumen, it should be black
-                        continue
-                    # used to store the four neighbored points for ellipse fitting
-                    point_coord = np.empty((4, 2))
-
-                    for k in range(4):
-                        # neigh_idx = len(x_vector) * (j + neigh_loc[1, k]) + i1 + neigh_loc[0, k]
-                        neigh_idx = idx + neigh_loc[0, k] * gy + neigh_loc[1, k]
-                        point_coord[k, :] = [self.x_grid_all[neigh_idx, i_slice], self.y_grid_all[neigh_idx, i_slice]]
-
-                    # make the elipse more elipse
-                    if skip_cell_thick == 0:
-                        point_coord[1, 1] -= 2
-                        point_coord[3, 1] += 2
-
-                    r1, r2, h, k = fit_elipse(point_coord)  # Estimate the coefficients of the ellipse.
-
-                    # Then we can estimate the diameter along two direction for the fiber
-                    # The rectangle region covering the ellipse.
-                    mr = np.floor(max(r1, r2))
-                    # TODO: check if it is normal to obtain NaNs here and if matlab is also just ignoring them
-                    if np.isnan(mr):
-                        continue
-                    region_cell_ind_x = int(np.ceil(h)) + np.arange(-mr, mr + 1)
-                    region_cell_ind_y = int(np.ceil(k)) + np.arange(-mr, mr + 1)
-                    region_cell_ind_x = np.arange(
-                        np.max((0, np.min(region_cell_ind_x))),
-                        np.min((sie_x, np.max(region_cell_ind_x))),
-                        dtype=int
-                    )
-                    region_cell_ind_y = np.arange(
-                        np.max((0, np.min(region_cell_ind_y))),
-                        np.min((sie_y, np.max(region_cell_ind_y))),
-                        dtype=int
-                    )
-
-                    if len(region_cell_ind_x) == 0 or len(region_cell_ind_y) == 0:
-                        continue
-
-                    region_cell_x, region_cell_y = np.meshgrid(region_cell_ind_x, region_cell_ind_y, indexing='ij')
-                    # Internal contour of the elipse
-                    in_elipse2 = (
-                        (region_cell_x - h)**2 / (r1 - self.thickness_all[idx, i_slice] - skip_cell_thick)**2 +
-                        (region_cell_y - k)**2 / (r2 - self.thickness_all[idx, i_slice] - skip_cell_thick)**2
-                    )
-
-                    vol_img_ref[region_cell_x, region_cell_y, i_slice] /= 1 + np.exp(-(in_elipse2 - 1) / 0.05)
-
-        vol_img_ref = np.astype(vol_img_ref, int)
-        vol_img_ref = np.clip(vol_img_ref, 0, 255)
-
-        return vol_img_ref
-
     def get_fiber_end_condition(self, lx: int, ly: int, i_slice: int) -> npt.NDArray:
         """Get a condition for skipping fiber generation due to fiber ending"""
         sie_z = self.params.size_im_enlarge[2]
@@ -644,7 +455,7 @@ class RayCell:
         x_vector = self.params.x_vector
         y_vector = self.params.y_vector
 
-        # TODO: !!! ensire index_vessel_* use the (n_idx, 2) shapes
+        # TODO: !!! ensure index_vessel_* use the (n_idx, 2) shapes
 
         ly = len(y_vector)
 
@@ -722,153 +533,6 @@ class RayCell:
                                 vol_img_ref[t1, t2, i_slice] = 1 / (1 + np.exp(-(in_elipse2 - 1) / 0.05)) * 255
         return vol_img_ref
 
-    @Clock('ray_cell')
-    def generate_raycell_(self, ray_idx: int, ray_width: npt.NDArray, input_volume: npt.NDArray):
-        """Generate ray cell"""
-        logger.info('=' * 80)
-        logger.info('Generating ray cell...')
-        vol_img_ref_final = np.copy(input_volume)
-        ray_cell_length = self.params.ray_cell_length
-        ray_cell_variance = self.params.ray_cell_variance
-        ray_height = self.params.ray_height
-        rcl_d3 = ray_cell_length / 3
-        rcl_t2 = ray_cell_length * 2
-
-        sie_x, _, sie_z = self.params.size_im_enlarge
-        x_grid = self.params.x_grid
-
-        cell_end_thick = self.params.cell_end_thick
-
-        # between first column and second column need a deviation
-        ray_column_rand = 1 / 2 * ray_height
-        for column_idx in ray_idx:
-            vessel_end_loc = []
-            vessel_end_loc.append(-ray_cell_length * np.random.rand(1))
-            lim = sie_x + ray_cell_length
-            while vessel_end_loc[-1] < lim:
-                temp = ray_cell_length + ray_cell_variance * np.random.randn(1)
-                if temp < rcl_d3 or temp > rcl_t2:  # TODO: should this be a clip left_right instead of clip right_right?
-                    temp = rcl_t2
-                vessel_end_loc.append(vessel_end_loc[-1] + temp)
-            vessel_end_loc = np.round(vessel_end_loc)
-            vessel_end_loc = vessel_end_loc[vessel_end_loc <= sie_x + ray_cell_length / 2]
-            vessel_end_loc = vessel_end_loc.astype(int)
-
-            logger.debug('  Ray cell: %d/%d (cidx, len(ray_idx))', column_idx, len(ray_idx))
-
-            for row_idx in range(len(vessel_end_loc) - 1):
-                logger.debug('  Ray cell: %d/%d (ridx, len(vessel_end_loc))', row_idx, len(vessel_end_loc))
-                vel_r = int(vessel_end_loc[row_idx])
-                vel_r1 = int(vessel_end_loc[row_idx + 1])
-                for m2, j_slice in enumerate(np.round(ray_width)):
-                    if column_idx % 2 == 0:
-                        k = np.round(j_slice + np.round(ray_column_rand))
-                    else:
-                        k = j_slice
-
-                    tmp_2 = np.round((m2 % 2) * ray_cell_length / 2)
-                    vel_col_r = int(vel_r + tmp_2)
-                    if vel_col_r < 1:
-                        continue
-                    vel_col_r1 = int(vel_r1 + tmp_2)
-                    if vel_col_r1 > sie_x - 1:
-                        continue
-                    # vessel_end_loc_column = vessel_end_loc + np.round((m2 % 2) * ray_cell_length / 2)
-                    # if vessel_end_loc_column[row_idx+1] > sie_x - 1 or vessel_end_loc_column[row_idx] < 1:
-                    #     continue
-                    tmp_1 = (np.max((1, k)) + np.min((k + ray_height, sie_z))) / 2
-                    t = int(np.round(tmp_1)) - 1
-                    if t < 0 or t >= sie_z - 11:
-                        continue
-
-                    dx = np.arange(sie_x)
-                    x_grid_t = self.x_grid_all[:, t].reshape(x_grid.shape)
-                    y_grid_t = self.y_grid_all[:, t].reshape(x_grid.shape)
-                    thick_grid_t = self.thickness_all[:, t].reshape(x_grid.shape)
-
-                    # print('x_grid_t:', t, x_grid_t[:, column_idx])
-                    try:
-                        y_interp1_c = CubicSpline(x_grid_t[:, column_idx], y_grid_t[:, column_idx])(dx) - 1.5
-                        thick_interp_c = CubicSpline(x_grid_t[:, column_idx], thick_grid_t[:, column_idx])(dx)
-                        y_interp2_c = CubicSpline(x_grid_t[:, column_idx + 1], y_grid_t[:, column_idx + 1])(dx) + 1.5
-                    except ValueError:
-                        # TODO: check how matlab handles this
-                        # The spline interpolations as is now can generate an X/Y grid where 2 points can swap order
-                        # e.g. on x-coords the left points can get pushed right enough and the right-point left enough
-                        # for them to swap order causing successive spline interpolation to fail because the x-coords
-                        # are not monotonic
-                        logger.warning('    WARNING: Spline interpolation failed')
-                        continue
-
-                    cell_center = np.column_stack((
-                        dx,
-                        np.round((y_interp2_c + y_interp1_c)) / 2,
-                        np.full(dx.shape, tmp_1)
-                    ))
-                    cell_r = np.column_stack((
-                        (y_interp2_c - y_interp1_c) / 2,
-                        np.full(dx.shape, (np.min((k + ray_height, sie_z)) - np.max((1, k))) / 2)
-                    )) + 0.5
-
-                    cell_neigh_pt = np.array([
-                        [vel_col_r, vel_col_r1],
-                        [np.round(y_interp1_c[vel_col_r]), np.round(y_interp2_c[vel_col_r])],
-                        [np.max((0, k)), np.min((k + ray_height, sie_x))]
-                    ])
-
-                    if row_idx == 0:
-                        valid_idx = np.arange(
-                            vel_col_r + int(cell_end_thick),
-                            vel_col_r1 - cell_end_thick // 2 + 1  #Right inclusive
-                        )
-                    else:
-                        valid_idx = np.arange(
-                            vel_col_r + cell_end_thick // 2 - 1,
-                            vel_col_r1 - cell_end_thick // 2 + 1  #Right inclusive
-                        )
-                    valid_idx = set(int(_) for _ in valid_idx)
-
-                    for idx in range(vel_col_r, vel_col_r1):
-                        if j_slice == np.min(ray_width):
-                            vol_img_ref_final[
-                                idx,
-                                int(y_interp1_c[idx]):int(y_interp2_c[idx] + 1),
-                                int(cell_center[idx, 2]):int(cell_neigh_pt[2, 1] + 1)
-                            ] = 255
-                        elif j_slice == np.max(ray_width):
-                            vol_img_ref_final[
-                                idx,
-                                int(y_interp1_c[idx]):int(y_interp2_c[idx] + 1),
-                                int(cell_neigh_pt[2, 0]):int(cell_center[idx, 2])
-                            ] = 255
-                        else:
-                            vol_img_ref_final[
-                                idx,
-                                int(y_interp1_c[idx]):int(y_interp2_c[idx] + 1),
-                                int(cell_neigh_pt[2, 0]):int(cell_neigh_pt[2, 1])
-                            ] = 255
-
-                        if idx in valid_idx:
-                            # print(idx, valid_idx)
-                            for j in range(int(cell_neigh_pt[1, 0]), int(cell_neigh_pt[1, 1]) + 1):
-                                for s in range(int(cell_neigh_pt[2, 0]), int(cell_neigh_pt[2, 1]) + 1):
-                                    inner_elipse = (
-                                        (j - cell_center[idx, 1])**2 / (cell_r[idx, 0] - thick_interp_c[idx])**2 +
-                                        (s - cell_center[idx, 2])**2 / (cell_r[idx, 1] - thick_interp_c[idx])**2
-                                    )
-
-                                    outer_elipse = (
-                                        (j - cell_center[idx, 1])**2 / cell_r[idx, 0]**2 +
-                                        (s - cell_center[idx, 2])**2 / cell_r[idx, 1]**2
-                                    )
-
-                                    if outer_elipse < 1:
-                                        # print('   ', j, s)
-                                        vol_img_ref_final[idx, j, s] = int(
-                                            (1 / (1 + np.exp(-(inner_elipse - 1) / .05))) * 255
-                                        )
-        return vol_img_ref_final
-
     def get_vessel_end_loc(self, shape = None):
 
         if shape is None:
@@ -907,7 +571,7 @@ class RayCell:
 
         Args:
             ray_idx (tuple[int, int]): Tuple of (idx, idx+1) where idx is the y-index of the ray cell
-            ray_width (npt.NDArray): Ray cell width (TODO need to understand this array)
+            ray_width (npt.NDArray): Ray cell width
             input_volume (npt.NDArray): Input 3D gray-scale image volume to modify
 
         Returns:
@@ -1068,86 +732,6 @@ class RayCell:
 
         return vol_img_ref_final
 
-    def generate_deformation_(self, ray_cell_idx: npt.NDArray, indx_skip_all: npt.NDArray, idx_vessel_cen: npt.NDArray):
-        """Add complicated deformation to the volume image. The deformation fields are generated separately.
-        Then, they are summed together. Here u, v are initialized to be zero. Then they are summed."""
-        logger.info('=' * 80)
-        logger.info('Generating deformation...')
-        sie_x, sie_y, sie_z = self.params.size_im_enlarge
-
-        x_vector = self.params.x_vector
-        y_vector = self.params.y_vector
-        lx = len(x_vector)
-        ly = len(y_vector)
-
-        indx_skip_all = set(int(_) for _ in indx_skip_all.flatten())
-
-        x,y = np.meshgrid(np.arange(sie_x), np.arange(sie_y), indexing='ij')
-        u = np.zeros_like(x, dtype=float)
-        v = np.zeros_like(x, dtype=float)
-        u1 = np.zeros_like(x, dtype=float)
-        v1 = np.zeros_like(x, dtype=float)
-
-        # TODO: work with 3D grid
-        x_grid_all = self.x_grid_all
-        y_grid_all = self.y_grid_all
-
-        for i in range(1, lx-1, 2):
-            logger.debug('  i: %d/%d', i, lx-1)
-            for j in range(1, ly-1, 2):
-                i1 = i + ((j+1) % 4 == 0)
-                idx = i1 * ly + j
-                if idx in indx_skip_all:
-                    continue
-                # print(f'  j: {j} / {ly}')
-                mm = np.min(abs(j - ray_cell_idx))
-                is_close_to_ray = mm <= 4
-                is_close_to_ray_far = mm <= 8
-
-                vessel_idx = np.where(idx == idx_vessel_cen)[0]
-                pcx, pcy = x_grid_all[i1, j, 0], y_grid_all[i1, j, 0]
-                if len(vessel_idx) == 0:
-                    # Small fibers
-                    if is_close_to_ray:
-                        k = [0.08, 0.06, 2 + np.random.rand(), 0.3 * (1 + np.random.rand())]
-                    else:
-                        k = [0.08, 0.06, 2 + np.random.rand(), 1.0 * (1 + np.random.rand())]
-                    u_temp = local_distort(x,y, pcx, pcy, k)
-
-                    if is_close_to_ray:
-                        k = [0.08, 0.06, 2 + np.random.rand(), 0.3 * (1 + np.random.rand())]
-                    else:
-                        k = [0.08, 0.06, 2 + np.random.rand(), 1.0 * (1 + np.random.rand())]
-                    v_temp = local_distort(y,x, pcy, pcx, k)
-                    sign_temp = np.sign(np.random.randn())
-
-                    u += -sign_temp * u_temp
-                    v += -sign_temp * v_temp
-
-                else:
-                    # Large vessels
-                    # ----------the value here are super important-------------
-                    if is_close_to_ray_far:
-                        k = [0.06, 0.055, 2, 3 + 5 * np.random.rand()]
-                    else:
-                        k = [0.06, 0.055, 2, 15]
-
-                    u += local_distort(x,y, pcx, pcy, k)
-                    v += local_distort(y,x, pcy, pcx, k)
-
-                if np.random.rand() < 0.01:
-                    # ----------the value here are super important-------------
-                    if is_close_to_ray_far:
-                        k = [0.01, 0.008, 1.5 * (1 + np.random.rand(1)), 0.2 * (1 + np.random.rand(1))]
-                    else:
-                        k = [0.01, 0.008, 1.5 * (1 + np.random.rand(1)), 0.5 * (1 + np.random.rand(1))]
-                    if np.random.randn() > 0:
-                        u1 += np.sign(np.random.randn()) * local_distort(x,y, pcx, pcy, k)
-                    else:
-                        v1 += np.sign(np.random.randn()) * local_distort(y,x, pcy, pcx, k)
-
-        return u, v, u1, v1
-
     def generate_deformation(self, ray_cell_idx: npt.NDArray, indx_skip_all: npt.NDArray, idx_vessel_cen: npt.NDArray):
         """Add complicated deformation to the volume image. The deformation fields are generated separately.
         Then, they are summed together. Here u, v are initialized to be zero. Then they are summed."""
@@ -1165,7 +749,6 @@ class RayCell:
         u1 = np.zeros_like(u, dtype=float)
         v1 = np.zeros_like(u, dtype=float)
 
-        # TODO: work with 3D grid
         lx = (gx - 1) // 2
         ly = (gy - 1) // 2
 
@@ -1196,7 +779,6 @@ class RayCell:
         cond = np.zeros_like(xc_grid, dtype=bool)
 
         # idx_vessel_cen: (num_vessels, 2)
-        # TODO: this needs to account for staggering !!!!
         for xc, yc in idx_vessel_cen:
             if yc % 2 == 0:
                 continue
@@ -1238,7 +820,6 @@ class RayCell:
             xp, yp = self.get_ldist_grid(xc, yc)
             local_dist = local_distort(xp, yp, xc, yc, k)
             u[xp, yp] += -s * local_dist
-            # u += -s * local_distort(x, y, xc, yc, k)
 
         logger.info('u shape: %s', u.shape)
 
@@ -1252,7 +833,6 @@ class RayCell:
             xp, yp = self.get_ldist_grid(xc, yc)
             local_dist = local_distort(yp, xp, yc, xc, k)
             v[xp, yp] += -s * local_dist
-            # v += -s * local_distort(y, x, yc, xc, k)
 
         logger.info('v shape: %s', v.shape)
 
@@ -1298,7 +878,6 @@ class RayCell:
         cnt = defaultdict(int)
         for idx in idx_all.flatten():
             cnt[int(idx)] += 1
-        # idx_all = set(int(_) for _ in idx_all.flatten())
 
         dx = np.arange(sie_x, dtype=int)
         _, y_grid = np.mgrid[0:sie_x, 0:sie_y]
@@ -1317,12 +896,11 @@ class RayCell:
                 v1 = np.zeros_like(y_grid, dtype=float)
                 v2 = np.zeros_like(y_grid, dtype=float)
 
-                # indicator = []
                 v1_all = None
                 v2_all = None
 
                 logger.debug('  Ray cell shrinking: key = %d  cnt[key] = %d', key, cnt[key])
-                # TODO: check does this relies on the fact that idx_all should be ordered?
+                # This relies on the fact that idx_all is ordered by construction
                 for key_cnt in range(cnt[key]):
                     k = base_k + key_cnt
                     idx = idx_all[k]
@@ -1449,9 +1027,8 @@ class RayCell:
     @staticmethod
     def save_2d_img(data: npt.NDArray, filename: str):
         """Save 2D data to a TIFF file"""
-        # print(np.where(np.isnan(data)))
         img = Image.fromarray(data.astype(np.uint8), mode='L')
-        img.show()
+        # img.show()
         img.save(filename)
 
     def save_distortion(self, u: npt.NDArray, v: npt.NDArray, slice_idx: int):
@@ -1485,21 +1062,15 @@ class RayCell:
         logger.debug('indx_vessel: %s', indx_vessel.shape)
         logger.debug('indx_vessel_cen: %s', indx_vessel_cen.shape)
 
-        # ray_cell_x_ind, ray_cell_width, keep_ray_cell, ray_cell_x_ind_all_update = self.distrbute_ray_cells(ray_cell_x_ind_all)
         ray_cell_x_ind, ray_cell_width, ray_cell_x_ind_all_update = self.distrbute_ray_cells(ray_cell_x_ind_all)
-        # print('ray_cell_x_ind:', ray_cell_x_ind.shape, ray_cell_x_ind)
-        # print('ray_cell_width:',)
         logger.debug('ray_cell_x_ind: %s  %s', ray_cell_x_ind.shape, ray_cell_x_ind)
         logger.debug('ray_cell_width:')
 
         for i,width in enumerate(ray_cell_width):
             logger.debug('   %d %s', i+1, width)
-        # logger.debug('keep_ray_cell: %s  %s', keep_ray_cell.shape, keep_ray_cell)
         logger.debug('ray_cell_x_ind_all_update: %s  %s', ray_cell_x_ind_all_update.shape, ray_cell_x_ind_all_update)
-        # sys.exit(0)
 
-        vol_img_ref = 255 * np.ones(self.params.size_im_enlarge)
-        # vol_img_ref = self.generate_small_fibers(ray_cell_x_ind_all, keep_ray_cell, indx_skip_all, vol_img_ref)
+        vol_img_ref = np.full(self.params.size_im_enlarge, 255, dtype=int)
         vol_img_ref = self.generate_small_fibers(ray_cell_x_ind, indx_skip_all, vol_img_ref)
         vol_img_ref = self.generate_large_fibers(indx_vessel, indx_vessel_cen, indx_skip_all, vol_img_ref)
 
@@ -1512,43 +1083,28 @@ class RayCell:
         self.create_dirs()
         self.save_slice(vol_img_ref, 'volImgBackBone')
 
-        # sys.exit(0)
         # u1 and v1 are in a commented part of the code. Prob used in original code?
         u, v, _, _ = self.generate_deformation(ray_cell_x_ind, indx_skip_all, indx_vessel_cen)
         logger.debug('u.shape: %s  min/max: %s %s', u.shape, u.min(), u.max())
         logger.debug('v.shape: %s  min/max: %s %s', v.shape, v.min(), v.max())
-
-        np.save('x_grid_all.npy', self.x_grid_all)
-        np.save('y_grid_all.npy', self.y_grid_all)
-        np.save('vol_img_ref_slices.npy', vol_img_ref[..., self.params.save_slice])
-        np.save('u.npy', u)
-        np.save('v.npy', v)
 
         if self.params.is_exist_ray_cell:
             v_all_ray = self.ray_cell_shrinking(ray_cell_width, ray_cell_x_ind_all_update, v)
             v = v[..., np.newaxis] + v_all_ray
             logger.debug('vray   : %s  min/max: %s %s', v_all_ray.shape, v_all_ray.min(), v_all_ray.max())
             logger.debug('v.shape: %s  min/max: %s %s', v.shape, v.min(), v.max())
-            np.save('v_all_ray.npy', v_all_ray)
-        else:
-            v_all_ray = np.zeros_like(v)
-            np.save('v_all_ray.npy', v_all_ray)
 
         for i, slice_idx in enumerate(self.params.save_slice):
             logger.debug('Saving deformation for slice %d', slice_idx)
-            self.save_distortion(u, v[..., i], slice_idx)
+            if self.params.is_exist_ray_cell:
+                v_slice = v[..., i]
+            else:
+                v_slice = v
+            self.save_distortion(u, v_slice, slice_idx)
 
-            img_interp = self.apply_deformation(vol_img_ref[..., slice_idx], u, v[..., i])
+            img_interp = self.apply_deformation(vol_img_ref[..., slice_idx], u, v_slice)
 
             filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
             self.save_2d_img(img_interp, filename)
-        # self.save_distortion(u, v)
-
-        # img_interp = self.apply_deformation(vol_img_ref, u, v)
-
-        # np.save('img_interp.npy', img_interp)
-
-        # filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{self.params.save_slice+1:05d}.tiff')
-        # self.save_2d_img(img_interp, filename)
 
         logger.info('======== DONE ========')
