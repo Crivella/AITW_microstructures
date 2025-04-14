@@ -40,7 +40,7 @@ Enabling tab autocompletion https://click.palletsprojects.com/en/stable/shell-co
 E.G for `bash` add the following
 
 ```bash
-eval "$(_WOODMS_COMPLETE=bash_source woodms)"
+eval "$(_WOOD_MS_COMPLETE=bash_source wood_ms)"
 ```
 
 to either `~/.bashrc` or if you are using a virtual environment to `bin/activate` of the virtual environment.
