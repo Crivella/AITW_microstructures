@@ -1,0 +1,58 @@
+[
+    {
+        "sizeVolume": [500, 1200, 300],
+        "random_seed": 43,
+        "saveSlice": [2,200],
+        "cellR": 14,
+        "cellLength": 2339,
+        "cellLengthVariance": 580,
+        "rayCellLength": 61,
+        "rayCell_variance": 14,
+        "rayCellNum": 11.30,
+        "rayCellNumStd": 3.30,
+        "vesselLength": 779,
+        "vesselLengthVariance": 190,
+        "raywHeight": 40,
+        "raySpace": 19,
+        "isExistVessel": 0,
+        "isExistRayCell": 1,
+        "cellWallThick": 4
+    },
+    {
+        "sizeVolume": [100,1100,200],
+        "random_seed": 2,
+        "saveSlice": [2,100,150],
+        "rayCell_variance": 14,
+        "rayCellNum": 11.30,
+        "rayCellNumStd": 3.30,
+        "vesselLength": 779,
+        "vesselLengthVariance": 190,
+        "raywHeight": 40,
+        "raySpace": 19,
+        "isExistVessel": 0,
+        "isExistRayCell": 1
+    },
+    {
+        "sizeVolume": [500, 1200, 300],
+        "random_seed": 43,
+        "saveSlice": 2,
+        "cellR": 14,
+        "cellLength": 2339,
+        "cellLengthVariance": 580,
+        "rayCellLength": 61,
+        "rayCell_variance": 14,
+        "rayCellNum": 11.30,
+        "rayCellNumStd": 3.30,
+        "vesselLength": 779,
+        "vesselLengthVariance": 190,
+        "raywHeight": 40,
+        "raySpace": 19,
+        "isExistVessel": 0,
+        "isExistRayCell": 1
+    },
+    {
+        "sizeVolume": [500,1200,300],
+        "saveSlice": [2,40,80,120,160,200],
+        "random_seed": 4
+    }
+]

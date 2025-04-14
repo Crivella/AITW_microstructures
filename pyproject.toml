@@ -48,7 +48,7 @@ name = "birch_data_generation"
 
 [tool.flit.sdist]
 exclude = [
-    ".gitignore", ".github", ".pre-commit-config.yaml",
+    ".gitignore", ".github", ".pre-commit-config.yaml", "examples/",
     "Dockerfile", "entrypoint.sh",
     "docs/", "docs/*"
     ]
