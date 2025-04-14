@@ -1,20 +1,21 @@
 import numpy as np
+import numpy.typing as npt
 
 
-def fit_elipse(point_coord: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def fit_elipse(point_coord: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
     """
     Fit an ellipse to a set of points.
 
     Parameters
     ----------
-    point_coord : np.ndarray
+    point_coord : npt.NDArray
         An array of shape (..., 4, 2) containing the x/y coordinates of the points to fit as columns.
         The ... assumes any number of leading dimensions to allow for broadcasting.
         See https://numpy.org/doc/2.2/reference/generated/numpy.linalg.solve.html
 
     Returns
     -------
-    tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+    tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]
         4 NDarrays of shape (...), representing:
         - r1: semi-major axis length
         - r2: semi-minor axis length
