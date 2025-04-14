@@ -1,15 +1,11 @@
 """Ray cells"""
 import os
-import sys
-import time
 from collections import defaultdict
 
-import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 from PIL import Image
-from scipy.interpolate import (CubicSpline, NearestNDInterpolator,
-                               RegularGridInterpolator, griddata)
+from scipy.interpolate import CubicSpline, RegularGridInterpolator, griddata
 
 from .clocks import Clock
 from .fit_elipse import fit_elipse
@@ -24,6 +20,7 @@ def local_distort(
         k: tuple[float, float, float, float]
     ) -> npt.NDArray:
     """Local distortion of the image"""
+
     k1, k2, k3, k4 = k
     sigma = k3 / k2
     k0 = k4 / k2
@@ -32,14 +29,16 @@ def local_distort(
     exp2 = np.exp(k2 * (x_grid - x0))
     exp3 = np.exp(-((y_grid - y0) / sigma)**2 / 2)
 
-    u = exp1 / (1 + exp1) - exp2 / (1 + exp2)
+    # u = exp1 / (1 + exp1) - exp2 / (1 + exp2)
+    u = (exp1 - exp2) / (1 + exp1 + exp2 + exp1 * exp2)
     u *= k0 * exp3
 
     return u
 
-# TODO: enforce same same convention of using 2D grid or flattened grid everywhere
 
 class RayCell:
+    local_distortion_cutoff = 200
+
     def __init__(self, params: RayCellParams):
         self.params = params
 
@@ -48,6 +47,17 @@ class RayCell:
         self.thickness_all = None
 
         self._root_dir = None
+
+    def get_ldist_grid(self, x_center: int, y_center: int):
+        """Get the X,Y grids centered on (x_center, y_center) with cutoff of `local_distortion_cutoff`"""
+        ldc = self.local_distortion_cutoff
+        sie_x, sie_y, _ = self.params.size_im_enlarge
+        x_grid, y_grid = np.mgrid[
+            max(0, x_center - ldc):min(sie_x, x_center + ldc),
+            max(0, y_center - ldc):min(sie_y, y_center + ldc)
+        ].astype(int)
+
+        return x_grid, y_grid
 
     def get_grid_all(self):
         """Specify the location of grid nodes and the thickness (with disturbance)"""
@@ -538,7 +548,7 @@ class RayCell:
         skip_fiber_column = np.array(skip_fiber_column).flatten().astype(int)
         skip_fiber_column = np.unique((skip_fiber_column[(skip_fiber_column % 2) == 1]) // 2)
 
-        sie_x, sie_y, sie_z = self.params.size_im_enlarge
+        sie_x, sie_y, _ = self.params.size_im_enlarge
         gx, gy = self.params.x_grid.shape
 
         x_grid_all = self.x_grid_all
@@ -558,19 +568,12 @@ class RayCell:
                 continue
             skip_idx.append((ix // 2, iy // 2))
         skip_idx = np.array(skip_idx)
-        # for idx in indx_skip_all.flatten().astype(int):
-        #     x = idx // gy
-        #     y = idx % gy
-        #     if x % 2 and y % 2:
-        #         skip_idx.append((x // 2, y // 2))
-        # skip_idx = np.array(indx_skip_all)
 
         point_coords = np.empty((lx, ly, 4, 2))
         t_all = np.empty((lx, ly))
         skip_cell_thick = 0  # TODO: Should this be a settable parameter?
         # for i_slice in range(sie_z):
         for i_slice in self.params.save_slice:
-            # if i_slice % 10 == 0:
             logger.debug('  Small fibers: %d/%s', i_slice, self.params.save_slice)
             x_slice = x_grid_all[:,:, i_slice]
             y_slice = y_grid_all[:,:, i_slice]
@@ -1155,22 +1158,19 @@ class RayCell:
         lx, ly, _ = self.x_grid_all.shape
         gx, gy = self.params.x_grid.shape
 
+        ldc = self.local_distortion_cutoff
 
-        x, y = np.mgrid[:sie_x, :sie_y]
-        u = np.zeros_like(x, dtype=float)
-        v = np.zeros_like(x, dtype=float)
-        u1 = np.zeros_like(x, dtype=float)
-        v1 = np.zeros_like(x, dtype=float)
+        u = np.zeros((sie_x, sie_y), dtype=float)
+        v = np.zeros_like(u, dtype=float)
+        u1 = np.zeros_like(u, dtype=float)
+        v1 = np.zeros_like(u, dtype=float)
 
         # TODO: work with 3D grid
-        x_grid_all = self.x_grid_all
-        y_grid_all = self.y_grid_all
-
         lx = (gx - 1) // 2
         ly = (gy - 1) // 2
 
-        x_slice = x_grid_all[:, :, 0]
-        y_slice = y_grid_all[:, :, 0]
+        x_slice = self.x_grid_all[:, :, 0]
+        y_slice = self.y_grid_all[:, :, 0]
 
         # TODO: check if this condition can be enforced geometrically
         skip_idx = set()
@@ -1182,25 +1182,27 @@ class RayCell:
             if ix % 2 == 0:
                 continue
             skip_idx.add((x_slice[ix, iy], y_slice[ix, iy]))
-        # skip_idx = np.array(skip_idx)
-        # skip_idx = np.array(idx_skip_all)
 
-        x_app = np.empty((lx, ly))
-        y_app = np.empty_like(x_app)
-        x_app[:, 0::2] = x_slice[1:-1:2, 1:-1:4]
-        x_app[:, 1::2] = x_slice[2:  :2, 3:-1:4]
-        y_app[:, 0::2] = y_slice[1:-1:2, 1:-1:4]
-        y_app[:, 1::2] = y_slice[2:  :2, 3:-1:4]
+        xc_grid = np.empty((lx, ly))
+        yc_grid = np.empty_like(xc_grid)
+        xc_grid[:, 0::2] = x_slice[1:-1:2, 1:-1:4]
+        xc_grid[:, 1::2] = x_slice[2:  :2, 3:-1:4]
+        yc_grid[:, 0::2] = y_slice[1:-1:2, 1:-1:4]
+        yc_grid[:, 1::2] = y_slice[2:  :2, 3:-1:4]
 
-        is_close_to_ray = np.zeros_like(x_app, dtype=bool)
-        is_close_to_ray_far = np.zeros_like(x_app, dtype=bool)
+        is_close_to_ray = np.zeros_like(xc_grid, dtype=bool)
+        is_close_to_ray_far = np.zeros_like(xc_grid, dtype=bool)
 
-        cond = np.zeros_like(x_app, dtype=bool)
+        cond = np.zeros_like(xc_grid, dtype=bool)
 
         # idx_vessel_cen: (num_vessels, 2)
         # TODO: this needs to account for staggering !!!!
         for xc, yc in idx_vessel_cen:
-            if xc % 2 == 0 and yc % 2 == 0:
+            if yc % 2 == 0:
+                continue
+            if (yc + 1) % 4 == 0:
+                xc += 1
+            if xc % 2 == 0:
                 continue
             cond[xc // 2, yc // 2] = True
 
@@ -1209,55 +1211,67 @@ class RayCell:
             is_close_to_ray[:, j // 2] = mm <= 4
             is_close_to_ray_far[:, j // 2] = mm <= 8
 
+        s_grid = np.sign(np.random.randn(lx, ly))
+        s_grid[cond] = -1
         k_grid = np.empty((lx, ly, 4))
 
-        sign = np.sign(np.random.randn(lx, ly))
-        k_grid[~cond, 0] = 0.08
-        k_grid[~cond, 1] = 0.06
-        rnd = np.random.rand(lx, ly)
-        k_grid[~cond, 2] = 2 + rnd[~cond]
-        rnd = np.random.rand(lx, ly)
-        k_grid[~cond, 3] = 1 + rnd[~cond]
-        w = ~cond & is_close_to_ray
-        k_grid[w, 3] *= 0.3
+        k_grid[..., 0] = 0.08
+        k_grid[..., 1] = 0.06
+        k_grid[..., 2] = 2
+        k_grid[..., 3] = 15
+
+        # k_grid[~cond, 0] = 0.08
+        # k_grid[~cond, 1] = 0.06
+        k_grid[~cond, 2] = 2 + np.random.rand(lx, ly)[~cond]
+        k_grid[~cond, 3] = 1 + np.random.rand(lx, ly)[~cond]
+        k_grid[~cond & is_close_to_ray, 3] *= 0.3
 
         k_grid[cond, 0] = 0.06
         k_grid[cond, 1] = 0.055
-        k_grid[cond, 2] = 2
-        k_grid[cond, 3] = 3 + 5 * np.random.rand(lx, ly)[cond]
-        k_grid[cond & ~is_close_to_ray_far, 3] = 15
+        # k_grid[cond, 2] = 2
+        k_grid[cond & is_close_to_ray_far, 3] = 3 + 5 * np.random.rand(lx, ly)[cond & is_close_to_ray_far]
+        # k_grid[cond & ~is_close_to_ray_far, 3] = 15
 
-        for xc, yc, k, s in zip(x_app.flatten(), y_app.flatten(), k_grid.reshape(-1, 4), sign.flatten()):
+        for xc, yc, k, s in zip(xc_grid.flatten(), yc_grid.flatten(), k_grid.reshape(-1, 4), s_grid.flatten()):
             if (xc, yc) in skip_idx:
                 continue
-            u += -s * local_distort(x, y, xc, yc, k)
+            xp, yp = self.get_ldist_grid(xc, yc)
+            local_dist = local_distort(xp, yp, xc, yc, k)
+            u[xp, yp] += -s * local_dist
+            # u += -s * local_distort(x, y, xc, yc, k)
 
         logger.info('u shape: %s', u.shape)
 
-        rnd = np.random.rand(lx, ly)
-        k_grid[~cond, 2] = 2 + rnd[~cond]
-        rnd = np.random.rand(lx, ly)
-        k_grid[~cond, 3] = 1 + rnd[~cond]
-        w = ~cond & is_close_to_ray
-        k_grid[w, 3] *= 0.3
+        k_grid[~cond, 2] = 2 + np.random.rand(lx, ly)[~cond]
+        k_grid[~cond, 3] = 1 + np.random.rand(lx, ly)[~cond]
+        k_grid[~cond & is_close_to_ray, 3] *= 0.3
 
-        for xc, yc, k, s in zip(x_app.flatten(), y_app.flatten(), k_grid.reshape(-1, 4), sign.flatten()):
+        for xc, yc, k, s in zip(xc_grid.flatten(), yc_grid.flatten(), k_grid.reshape(-1, 4), s_grid.flatten()):
             if (xc, yc) in skip_idx:
                 continue
-            v += -s * local_distort(y, x, yc, xc, k)
+            xp, yp = self.get_ldist_grid(xc, yc)
+            local_dist = local_distort(yp, xp, yc, xc, k)
+            v[xp, yp] += -s * local_dist
+            # v += -s * local_distort(y, x, yc, xc, k)
 
         logger.info('v shape: %s', v.shape)
 
-        for xc, yc, cf in zip(x_app.flatten(), y_app.flatten(), is_close_to_ray_far.flatten()):
+        for xc, yc, cf in zip(xc_grid.flatten(), yc_grid.flatten(), is_close_to_ray_far.flatten()):
             if np.random.rand() >= 0.01:
                 continue
             k = [0.01, 0.008, 1.5 * (1 + np.random.rand()), 0.2 * (1 + np.random.rand())]
             if not cf:
                 k[3] *= 2.5
+
+            xp, yp = self.get_ldist_grid(xc, yc)
             if np.random.randn() > 0:
-                u1 += np.sign(np.random.randn()) * local_distort(x, y, xc, yc, k)
+                local_dist = local_distort(xp, yp, xc, yc, k)
+                u1[xp, yp] += np.sign(np.random.randn()) * local_dist
+                # u1 += np.sign(np.random.randn()) * local_distort(x, y, xc, yc, k)
             else:
-                v1 += np.sign(np.random.randn()) * local_distort(y, x, yc, xc, k)
+                local_dist = local_distort(yp, xp, yc, xc, k)
+                v1[xp, yp] += np.sign(np.random.randn()) * local_dist
+                # v1 += np.sign(np.random.randn()) * local_distort(y, x, yc, xc, k)
 
         return u, v, u1, v1
 
