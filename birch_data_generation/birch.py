@@ -24,7 +24,7 @@ class BirchMicrostructure:
         self.y_grid_all = None
         self.thickness_all = None
 
-        self.outdir = outdir or os.getenv('ROOT_DIR', 'SaveBirch_')
+        self.outdir = outdir or os.getenv('ROOT_DIR', '.')
 
         self._root_dir = None
         self.dir_cnt = 0
@@ -985,16 +985,17 @@ class BirchMicrostructure:
     @property
     def root_dir(self):
         if self._root_dir is None:
-            while os.path.exists(f'{self.outdir}{self.dir_cnt}'):
+            while os.path.exists(os.path.join(self.outdir, f'SaveBirch_{self.dir_cnt}')):
                 self.dir_cnt += 1
             while True:
                 try:
-                    os.makedirs(f'{self.outdir}{self.dir_cnt}')
+                    dir_path = os.path.join(self.outdir, f'SaveBirch_{self.dir_cnt}')
+                    os.makedirs(dir_path)
                 except FileExistsError:
                     self.dir_cnt += 1
                     continue
                 else:
-                    self._root_dir = f'{self.outdir}{self.dir_cnt}'
+                    self._root_dir = dir_path
                     break
         return self._root_dir
 
