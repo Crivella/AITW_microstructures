@@ -25,12 +25,12 @@ for param in params:
 
 ### CLI
 
-The installation will make available a `woodms` command line interface.
+The installation will make available a `wood_ms` command line interface.
 
-Use the `woodms birch --help` flag to see all available options.
+Use the `wood_ms birch --help` flag to see all available options.
 
 ```bash
-woodms birch -v --json_file INPUT_FILE_PATH.json --max-parallel 2
+wood_ms birch -v --json_file INPUT_FILE_PATH.json --max-parallel 2
 ```
 
 #### Tab autocompletion
