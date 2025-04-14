@@ -1,4 +1,5 @@
 """Input paramemters"""
+import json
 from dataclasses import dataclass
 
 import numpy as np
@@ -131,10 +132,24 @@ class RayCellParams:
         return self._num_grid_nodes
 
     @classmethod
-    def from_json(cls, json_file: str):
+    def from_json(cls, json_file: str) -> list['RayCellParams']:
         """Create an instance from a JSON file"""
-        import json
         with open(json_file, 'r') as f:
             data = json.load(f)
+        res = []
+        if isinstance(data, dict):
+            data = {cls.params_map.get(k, k): v for k, v in data.items()}
+            res = [cls(**data)]
+        elif isinstance(data, list):
+            for item in data:
+                item = {cls.params_map.get(k, k): v for k, v in item.items()}
+                res.append(cls(**item))
+        else:
+            raise ValueError('Invalid data format in JSON file')
+        return res
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'RayCellParams':
+        """Create an instance from a JSON file"""
         data = {cls.params_map.get(k, k): v for k, v in data.items()}
         return cls(**data)

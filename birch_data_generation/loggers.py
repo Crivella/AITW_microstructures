@@ -1,7 +1,25 @@
 import logging
 import os
 
-logger = None
+logger: logging.Logger = None
+
+def add_file_logger(logger: logging.Logger, log_file_name):
+    """Add a file logger to the logger."""
+    # Formatter
+    formatter = logging.Formatter('{asctime} - {levelname:>7s} - {name:>6s}:{module:<15s} - {message}', style='{')
+
+    # File handler
+    if log_file_name is not None:
+        file_handler = logging.FileHandler(log_file_name)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+def set_console_level(logger: logging.Logger, level: int):
+    """Set the console level of the logger."""
+    for handler in logger.handlers:
+        if isinstance(handler, logging.StreamHandler):
+            handler.setLevel(level)
 
 if logger is None:
     # Create a logger
@@ -20,8 +38,4 @@ if logger is None:
 
     # File handler
     log_file_name = os.getenv('LOG_FILE_NAME', None)
-    if log_file_name is not None:
-        file_handler = logging.FileHandler(log_file_name)
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+    add_file_logger(logger, log_file_name)

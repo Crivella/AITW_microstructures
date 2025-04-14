@@ -2,5 +2,5 @@
 
 __version__ = '0.1.0'
 
+from .birch import BirchMicrostructure
 from .params import RayCellParams
-from .ray_cell import RayCell

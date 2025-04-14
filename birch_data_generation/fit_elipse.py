@@ -37,3 +37,26 @@ def fit_elipse(point_coord: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray, npt.
     r2 = np.sqrt(2 * (x[...,0] * h**2 + x[...,1] * k**2 - 1) / (x[...,0] + x[...,1] - diff))
 
     return r1, r2, h, k
+
+def fit_ellipse_6pt(point_coord: npt.NDArray) -> tuple[float, float, float, float]:
+    """Fit 6 points to an ellipse."""
+    assert len(point_coord.shape) == 2
+    assert point_coord.shape[1] == 2
+    assert point_coord.shape[0] == 6
+
+    point_coord = np.concatenate((point_coord**2, point_coord), axis=-1)
+    b = np.ones(6)
+
+    x, _, _, _ = np.linalg.lstsq(point_coord, b, rcond=None)
+
+    x *= np.sign(x[0])
+
+    h = -x[2] / x[0] / 2
+    k = -x[3] / x[1] / 2
+
+    diff = np.abs(x[0] - x[1])
+
+    r1 = np.sqrt(2 * (x[0] * h**2 + x[1] * k**2 - 1) / (x[0] + x[1] + diff))
+    r2 = np.sqrt(2 * (x[0] * h**2 + x[1] * k**2 - 1) / (x[0] + x[1] - diff))
+
+    return r1, r2, h, k

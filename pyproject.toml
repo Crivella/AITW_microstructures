@@ -24,8 +24,8 @@ requires-python = ">=3.9"
 dependencies = [
     "numpy",
     "scipy",
-    "matplotlib",
-    "pillow"
+    "pillow",
+    "click",
 ]
 
 # [project.urls]
@@ -39,6 +39,9 @@ pre-commit = [
 release = [
     "flit"
 ]
+
+[project.scripts]
+wood_ms = "birch_data_generation.cli.main:wood_microstructure"
 
 [tool.flit.module]
 name = "birch_data_generation"

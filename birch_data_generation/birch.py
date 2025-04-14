@@ -9,23 +9,25 @@ from scipy.interpolate import CubicSpline, griddata
 
 from .clocks import Clock
 from .distortion import get_distortion_grid, local_distort
-from .fit_elipse import fit_elipse
+from .fit_elipse import fit_elipse, fit_ellipse_6pt
 from .loggers import logger
 from .params import RayCellParams
 
-ROOT_DIR = os.getenv('ROOT_DIR', 'SaveBirch_')
 
-class RayCell:
+class BirchMicrostructure:
     local_distortion_cutoff = 200
 
-    def __init__(self, params: RayCellParams):
+    def __init__(self, params: RayCellParams, outdir: str = None):
         self.params = params
 
         self.x_grid_all = None
         self.y_grid_all = None
         self.thickness_all = None
 
+        self.outdir = outdir or os.getenv('ROOT_DIR', 'SaveBirch_')
+
         self._root_dir = None
+        self.dir_cnt = 0
 
     def get_ldist_grid(self, x_center: int, y_center: int):
         """Get the X,Y grids centered on (x_center, y_center) with cutoff of `local_distortion_cutoff`"""
@@ -82,64 +84,68 @@ class RayCell:
         x_vector = self.params.x_vector
         y_vector = self.params.y_vector
 
-        x_rand_1 = np.round((np.random.rand(self.params.vessel_count) * (len(x_vector) - 16) + 8) / 2) * 2 - 1
-        y_rand_1 = np.round((np.random.rand(self.params.vessel_count) * (len(y_vector) - 14) + 7) / 4) * 4
-        y_rand_2 = np.round((np.random.rand(self.params.vessel_count // 2) * (len(y_vector) - 14) + 7) / 2) * 2
-        x_rand_2 = np.round((np.random.rand(self.params.vessel_count // 2) * (len(x_vector) - 16) + 8) / 2) * 2
+        # Adjusted for 0-indexing
+        x_rand_1 = np.round((np.random.rand(self.params.vessel_count) * (len(x_vector) - 16) + 8) / 2) * 2 - 2
+        y_rand_1 = np.round((np.random.rand(self.params.vessel_count) * (len(y_vector) - 14) + 7) / 4) * 4 - 1
+        y_rand_2 = np.round((np.random.rand(self.params.vessel_count // 2) * (len(y_vector) - 14) + 7) / 2) * 2 - 1
+        x_rand_2 = np.round((np.random.rand(self.params.vessel_count // 2) * (len(x_vector) - 16) + 8) / 2) * 2 - 1
 
-        x_rand_all = np.vstack((x_rand_1, x_rand_2))
-        y_rand_all = np.vstack((y_rand_1, y_rand_2))
+        x_rand_all = np.concatenate((x_rand_1, x_rand_2), axis=0)
+        y_rand_all = np.concatenate((y_rand_1, y_rand_2), axis=0)
         vessel_all = np.column_stack((x_rand_all, y_rand_all))
 
-        # Remove some vessel that too close to the other vessels
         vessel_all = self.vessel_filter_close(vessel_all)
         vessel_all = self.vessel_filter_ray_close(vessel_all, ray_cell_x_ind_all)
         vessel_all = self.vessel_extend(vessel_all)
-        vessel_all = self.vessel_filter_ray_close(vessel_all, ray_cell_x_ind_all)
+        # vessel_all = self.vessel_filter_close(vessel_all)
+        vessel_all = self.vessel_filter_ray_close2(vessel_all, ray_cell_x_ind_all)
 
         return vessel_all.astype(int)
 
     def vessel_filter_close(self, vessel_all: npt.NDArray):
         """Filter the vessel that are too close to the other vessels"""
-        all_idx = set()
+        logger.debug('  -- Vessel filter close --')
+        all_idx = []
         done = set()
         for i, vessel in enumerate(vessel_all):
-            if vessel[0] == 0:
+            if i in done:
                 continue
             dist = np.abs(vessel_all - vessel)
             mark0 = np.where((dist[:, 0] <= 6) & (dist[:, 1] <= 4))[0]
-            if i not in done:
-                all_idx.add(i)
+            all_idx.append(i)
             done.update(mark0)
 
-        return vessel_all[list(all_idx)]
+        return vessel_all[all_idx]
 
     def vessel_filter_ray_close(self, vessel_all: npt.NDArray, ray_cell_x_ind_all: npt.NDArray):
         """Filter the vessel that are too close to the ray cells"""
-        all_idx = set()
+        logger.debug('  -- Vessel filter ray close --')
+        all_idx = []
         for i, vessel in enumerate(vessel_all):
-            diff = vessel[0] - ray_cell_x_ind_all
+            diff = vessel[1] - ray_cell_x_ind_all
             if not np.any((diff >= -3) & (diff <= 4)):
-                all_idx.add(i)
-        return vessel_all[list(all_idx)]
+                all_idx.append(i)
+        return vessel_all[all_idx]
 
     def vessel_filter_ray_close2(self, vessel_all: npt.NDArray, ray_cell_x_ind_all: npt.NDArray):
         """Filter the vessel that too close to the ray cells"""
+        logger.debug('  -- Vessel filter ray close 2 --')
+
         lx = len(self.params.x_vector)
         ly = len(self.params.y_vector)
 
-        all_idx = set()
+        all_idx = []
         for i, vessel in enumerate(vessel_all):
-            diff = vessel[0] - ray_cell_x_ind_all
-            if not np.any((diff >= -3) & (diff <= 4)) and vessel[0] <= lx - 3 and vessel[1] <= ly - 3:
-                all_idx.add(i)
-        return vessel_all[list(all_idx)]
+            diff = vessel[1] - ray_cell_x_ind_all
+            if not np.any((diff >= -3) & (diff <= 4)) and vessel[0] < lx - 5 and vessel[1] < ly - 5:
+                all_idx.append(i)
+        return vessel_all[all_idx]
 
     def vessel_extend(self, vessel_all: npt.NDArray):
-        """Extend the vessel"""
+        """The vessels are extended. Some vessels are extended to be double-vessel cluster, some are
+        triple-vessel clusters."""
         vessel_all_extend = np.empty((0, 2))
-        logger.info('-- Vessel extend --')
-        logger.info('vessel_all: %s', vessel_all)
+        logger.debug('  -- Vessel extend --')
         for vessel in vessel_all:
             dist = vessel_all - vessel
 
@@ -156,10 +162,9 @@ class RayCell:
                     if possibility < 0.2:
                         temp = [vessel[0] + 6 + sign1, vessel[1] + sign2 * 2]
                         vessel_all_extend = np.vstack((vessel_all_extend, temp))
-                    else:
-                        if possibility < 0.5:
-                            temp = [vessel[0] + 6, vessel[1]]
-                            vessel_all_extend = np.vstack((vessel_all_extend, temp))
+                    elif possibility < 0.5:
+                        temp = [vessel[0] + 6, vessel[1]]
+                        vessel_all_extend = np.vstack((vessel_all_extend, temp))
             else:
                 if vessel[0] + 12 < len(self.params.x_vector) and vessel[1] + 10 < len(self.params.y_vector):
                     temp0 = [vessel[0] + 5 + sign1, vessel[1]]
@@ -181,8 +186,6 @@ class RayCell:
 
     def fiber_filter_in_vessel(self, vessel_all: npt.NDArray):
         """This function is used to remove the fibers in the vessels"""
-        # lx = len(self.params.x_vector)
-        # ly = len(self.params.y_vector)
         num_vess = vessel_all.shape[0]  # (num_vess, 2)
 
         indx_skip_all = np.empty((num_vess, 6, 2), dtype=int)
@@ -206,14 +209,6 @@ class RayCell:
             (+3, -1),
             (+3, +1)
         ]
-
-        # indx_skip_all = indx_skip_all[:,:,0] * ly + indx_skip_all[:,:,1]
-        # indx_vessel = indx_vessel[:,:,0] * ly + indx_vessel[:,:,1]
-
-        # indx_vessel_cen = vessel_all[:, 0] * ly + vessel_all[:, 1]
-
-        indx_skip_all = indx_skip_all.reshape(-1, 2)
-        indx_vessel = indx_vessel.reshape(-1, 2)
 
         return indx_skip_all.astype(int), indx_vessel.astype(int), vessel_all.astype(int)
 
@@ -343,16 +338,18 @@ class RayCell:
         lx = (gx - 2) // 2
         ly = (gy - 2) // 2
 
-        skip_idx = []
-        for ix, iy in indx_skip_all.reshape(-1, 2):
-            if iy % 2 == 0:
-                continue
-            if (iy + 1) % 4 == 0:
-                ix += 1
-            if ix % 2 == 0:
-                continue
-            skip_idx.append((ix // 2, iy // 2))
-        skip_idx = np.array(skip_idx)
+        # skip_idx = []
+        # for ix, iy in indx_skip_all.reshape(-1, 2):
+        #     if iy % 2 == 0:
+        #         continue
+        #     if (iy + 1) % 4 == 0:
+        #         ix -= 1
+        #     if ix % 2 == 0:
+        #         continue
+        #     skip_idx.append((ix // 2, iy // 2))
+        # skip_idx = np.array(skip_idx)
+        # print('  skip_idx:', indx_skip_all.shape, skip_fiber_column.shape)
+        # print('  skip_idx:', indx_skip_all)
 
         point_coords = np.empty((lx, ly, 4, 2))
         t_all = np.empty((lx, ly))
@@ -386,8 +383,17 @@ class RayCell:
 
             # Set a very high value for h in nodes that should be ignored
             h[:, skip_fiber_column] = 80000
-            if len(skip_idx) > 0:
-                h[skip_idx[:, 0], skip_idx[:, 1]] = 80000
+            # if len(skip_idx) > 0:
+            #     h[skip_idx[:, 0], skip_idx[:, 1]] = 80000
+            for ix, iy in indx_skip_all.reshape(-1, 2):
+                if iy % 2 == 0:
+                    continue
+                if (iy + 1) % 4 == 0:
+                    ix -= 1
+                if ix % 2 == 0:
+                    continue
+                # print(' Skipping:', i_slice, ix // 2, iy // 2)
+                h[ix // 2, iy // 2] = 80000
             h[self.get_fiber_end_condition(lx, ly, i_slice)] = 80000
 
             # The alternative is to write the full x/y grid and denote it into sub-domains based on the closest h/k
@@ -418,93 +424,93 @@ class RayCell:
             self,
             indx_vessel: npt.NDArray,
             indx_vessel_cen: npt.NDArray,
-            indx_skip_all: npt.NDArray,
+            # indx_skip_all: npt.NDArray,
             input_volume: npt.NDArray
         ) -> npt.NDArray:
         """Generate large fibers."""
         logger.info('=' * 80)
         logger.info('Generating large fibers...')
+        logger.debug('  indx_vessel: %s', indx_vessel.shape)
+        logger.debug('  indx_vessel_cen: %s', indx_vessel_cen.shape)
         vol_img_ref = np.copy(input_volume)
 
         x_vector = self.params.x_vector
         y_vector = self.params.y_vector
 
-        # TODO: !!! ensure index_vessel_* use the (n_idx, 2) shapes
-
-        ly = len(y_vector)
+        # TODO: Vectorize this like small_fibers
 
         sie_x, sie_y, sie_z = self.params.size_im_enlarge
 
-        vessel_length = self.params.vessel_length
+        # vessel_length = self.params.vessel_length
         vessel_thicker = 1  # TODO: Should this be a settable parameter?
-        vessel_length_variance = self.params.vessel_length_variance
-        cell_end_thick = self.params.cell_end_thick
+        # vessel_length_variance = self.params.vessel_length_variance
+        # cell_end_thick = self.params.cell_end_thick
 
-        # TODO: check and also work with 3D grid
-        x_grid_all = self.x_grid_all.reshape(-1, sie_z)
-        y_grid_all = self.y_grid_all.reshape(-1, sie_z)
+        x_grid_all = self.x_grid_all
+        y_grid_all = self.y_grid_all
 
         for i in range(1, len(x_vector)-2, 2):
             for j in range(1, len(y_vector)-2, 2):
                 # The arrangement of the cells should be staggered. So every four nodes,
                 # they should deviate along x direction.
                 i1 = i + ((j + 1) % 4 == 0)
-                idx = i1 * ly + j
+                i_vessel = np.where(np.all(indx_vessel_cen == (i1, j), axis=1))[0]
+                if not i_vessel.size:
+                    continue
+                if len(i_vessel) > 1:
+                    raise ValueError('More than one vessel in the same cell')
+                logger.debug('  large vessel at: idx = (%s, %s)', i1, j)
+                i_vessel = i_vessel[0]
+                six_pt_x = indx_vessel[i_vessel, :, 0]
+                six_pt_y = indx_vessel[i_vessel, :, 1]
 
-                vessel_end_loc_all = [np.round(np.random.rand() * vessel_length)]
-                for _ in range(int(np.ceil(sie_z / vessel_length)) + 8):
-                    # temp = np.min(
-                    #     3 * vessel_length,
-                    #     np.max(100, vessel_length + np.random.randn() * self.params.vessel_length_variance)
-                    # )
-                    temp = np.clip(vessel_length + np.random.randn() * vessel_length_variance, 100, 3 * vessel_length)
-                    vessel_end_loc_all.append(np.round(vessel_end_loc_all[-1] + temp))
-                vessel_end_loc_all = np.array(vessel_end_loc_all)
+                # vessel_end_loc_all = [np.round(np.random.rand() * vessel_length)]
+                # for _ in range(int(np.ceil(sie_z / vessel_length)) + 8):
+                #     # temp = np.min(
+                #     #     3 * vessel_length,
+                #     #     np.max(100, vessel_length + np.random.randn() * self.params.vessel_length_variance)
+                #     # )
+                #     temp = np.clip(vessel_length + np.random.randn() * vessel_length_variance, 100, 3 * vessel_length)
+                #     vessel_end_loc_all.append(np.round(vessel_end_loc_all[-1] + temp))
+                # vessel_end_loc_all = np.array(vessel_end_loc_all)
 
-                # This is a manually given value. To increase the randomness
-                vessel_end_loc = vessel_end_loc_all - 4 * vessel_length + 1
-                # The end of the vessel should be inside the volume.
-                vessel_end_loc = vessel_end_loc[(vessel_end_loc >= 4) & (vessel_end_loc <= sie_z - 4)]
+                # # This is a manually given value. To increase the randomness
+                # vessel_end_loc = vessel_end_loc_all - 4 * vessel_length + 1
+                # # The end of the vessel should be inside the volume.
+                # vessel_end_loc = vessel_end_loc[(vessel_end_loc >= 4) & (vessel_end_loc <= sie_z - 4)]
 
-                vessel_end = np.empty((0, vessel_end_loc.size))
-                for i in range(cell_end_thick):
-                    vessel_end = np.vstack((vessel_end, vessel_end_loc + i))
+                # vessel_end = np.empty((0, vessel_end_loc.size))
+                # for ct in range(cell_end_thick):
+                #     vessel_end = np.vstack((vessel_end, vessel_end_loc + ct))
 
 
-                for i_slice in range(sie_z):
-                    i_vessel = np.where(idx == indx_vessel_cen)[0]
-                    if not i_vessel.size:
-                        continue
-
-                    # print('Large fibers:', i, j, i_slice)
-
+                # for i_slice in range(sie_z):
+                for i_slice in self.params.save_slice:
                     point_coord = np.column_stack((
-                        x_grid_all[*(*indx_vessel[i_vessel].T, i_slice)],
-                        y_grid_all[*(*indx_vessel[i_vessel].T, i_slice)]
+                        x_grid_all[six_pt_x, six_pt_y, i_slice],
+                        y_grid_all[six_pt_x, six_pt_y, i_slice]
                     ))
-                    r1, r2, h, k = fit_elipse(point_coord)  # Estimate the coeffecients of the elipse.
+                    r1, r2, h, k = fit_ellipse_6pt(point_coord)  # Estimate the coefficients of the ellipse.
 
-                    thick = self.thickness_all[idx, i_slice] + vessel_thicker
+                    thick = self.thickness_all[i1, j, i_slice] + vessel_thicker
                     mr = np.floor(max(r1, r2))
-                    for t1 in np.round(h) + np.arange(-mr, mr + 1):
-                        for t2 in np.round(k) + np.arange(-mr, mr + 1):
-                            if (t1 < 0 or t1 >= sie_x) or (t2 < 0 or t2 >= sie_y):
-                                continue
 
+                    x_grid, y_grid = np.mgrid[
+                        max(0, int(np.ceil(h)) - mr):min(sie_x, int(np.ceil(h)) + mr),
+                        max(0, int(np.ceil(k)) - mr):min(sie_y, int(np.ceil(k)) + mr)
+                    ].astype(int)
+                    in_elipse1 = (
+                        (x_grid - h)**2 / (r1 - thick * 4/3)**2 +
+                        (y_grid - k)**2 / (r2 - thick * 1)**2
+                    )
+                    in_elipse2 = (
+                        (x_grid - h)**2 / (r1 - thick * 5/3)**2 +
+                        (y_grid - k)**2 / (r2 - thick * 5/3)**2
+                    )
+                    mul = 1 + np.exp(-(in_elipse2 - 1) / 0.05)
+                    cond = in_elipse1 <= 1
+                    vol_img_ref[x_grid[cond], y_grid[cond], i_slice] = 255 / mul[cond]
 
-                            # in_elipse0 = (t1 - h)**2 / r1**2 + (t2 - k)**2 / r2**2
-                            in_elipse1 = (
-                                (t1 - h)**2 / (r1 - thick * 4/3)**2 +
-                                (t2 - k)**2 / (r2 - thick * 1)**2
-                            )
-                            in_elipse2 = (
-                                (t1 - h)**2 / (r1 - thick * 5/3)**2 +
-                                (t2 - k)**2 / (r2 - thick * 5/3)**2
-                            )
-
-                            if in_elipse1 <= 1:
-                                # print('  ', t1, t2)
-                                vol_img_ref[t1, t2, i_slice] = 1 / (1 + np.exp(-(in_elipse2 - 1) / 0.05)) * 255
         return vol_img_ref
 
     def get_vessel_end_loc(self, shape = None):
@@ -713,6 +719,7 @@ class RayCell:
         Then, they are summed together. Here u, v are initialized to be zero. Then they are summed."""
         logger.info('=' * 80)
         logger.info('Generating deformation...')
+        logger.debug('  ray_cell_idx: %s', ray_cell_idx.shape)
         sie_x, sie_y, _ = self.params.size_im_enlarge
 
         lx, ly, _ = self.x_grid_all.shape
@@ -735,7 +742,7 @@ class RayCell:
             if iy % 2 == 0:
                 continue
             if (iy + 1) % 4 == 0:
-                ix += 1
+                ix -= 1
             if ix % 2 == 0:
                 continue
             skip_idx.add((x_slice[ix, iy], y_slice[ix, iy]))
@@ -762,10 +769,11 @@ class RayCell:
                 continue
             cond[xc // 2, yc // 2] = True
 
-        for j in range(1, ly - 1, 2):
-            mm = np.min(abs(j - ray_cell_idx))
-            is_close_to_ray[:, j // 2] = mm <= 4
-            is_close_to_ray_far[:, j // 2] = mm <= 8
+        if ray_cell_idx.size:
+            for j in range(1, ly - 1, 2):
+                mm = np.min(abs(j - ray_cell_idx))
+                is_close_to_ray[:, j // 2] = mm <= 4
+                is_close_to_ray_far[:, j // 2] = mm <= 8
 
         s_grid = np.sign(np.random.randn(lx, ly))
         s_grid[cond] = -1
@@ -856,9 +864,10 @@ class RayCell:
 
         v_all = np.zeros((sie_x, sie_y, len(self.params.save_slice)), dtype=float)
         for i, slice_idx in enumerate(self.params.save_slice):
+            logger.debug('slice: %d/%d', i, len(self.params.save_slice))
             x_node_grid = x_grid_all[..., slice_idx]
             y_node_grid = y_grid_all[..., slice_idx]
-            logger.debug('x_node_grid.shape: %s', x_node_grid.shape)
+            # logger.debug('x_node_grid.shape: %s', x_node_grid.shape)
 
             base_k = 0
 
@@ -871,13 +880,13 @@ class RayCell:
                 v1_all = None
                 v2_all = None
 
-                logger.debug('  Ray cell shrinking: key = %d  cnt[key] = %d', key, cnt[key])
+                logger.debug('   ray_idx = %d * (dupl = %d)', key, cnt[key])
                 # This relies on the fact that idx_all is ordered by construction
                 for key_cnt in range(cnt[key]):
                     k = base_k + key_cnt
                     idx = idx_all[k]
 
-                    logger.debug(f'  {idx=} {x_node_grid[:, idx].shape=} {y_node_grid[:, idx].shape=} {dx.shape=}')
+                    # logger.debug(f'  {idx=} {x_node_grid[:, idx].shape=} {y_node_grid[:, idx].shape=} {dx.shape=}')
                     y_node_grid_1 = CubicSpline(x_node_grid[:, idx], y_node_grid[:, idx])(dx)
                     y_node_grid_2 = CubicSpline(x_node_grid[:, idx + 2], y_node_grid[:, idx + 2])(dx)
 
@@ -976,10 +985,17 @@ class RayCell:
     @property
     def root_dir(self):
         if self._root_dir is None:
-            dir_cnt = 0
-            while os.path.exists(f'{ROOT_DIR}{dir_cnt}'):
-                dir_cnt += 1
-            self._root_dir = f'{ROOT_DIR}{dir_cnt}'
+            while os.path.exists(f'{self.outdir}{self.dir_cnt}'):
+                self.dir_cnt += 1
+            while True:
+                try:
+                    os.makedirs(f'{self.outdir}{self.dir_cnt}')
+                except FileExistsError:
+                    self.dir_cnt += 1
+                    continue
+                else:
+                    self._root_dir = f'{self.outdir}{self.dir_cnt}'
+                    break
         return self._root_dir
 
     @Clock('Disk IO')
@@ -1032,7 +1048,7 @@ class RayCell:
 
         vessel_all = self.get_vessels_all(ray_cell_x_ind_all)
         logger.debug('vessel_all.shape: %s', vessel_all.shape)
-        logger.debug('vessel_all: %s', vessel_all)
+        # logger.debug('vessel_all: %s', vessel_all)
 
         indx_skip_all, indx_vessel, indx_vessel_cen = self.fiber_filter_in_vessel(vessel_all)
         logger.debug('indx_skip_all: %s', indx_skip_all.shape)
@@ -1049,7 +1065,7 @@ class RayCell:
 
         vol_img_ref = np.full(self.params.size_im_enlarge, 255, dtype=float)
         vol_img_ref = self.generate_small_fibers(ray_cell_x_ind, indx_skip_all, vol_img_ref)
-        vol_img_ref = self.generate_large_fibers(indx_vessel, indx_vessel_cen, indx_skip_all, vol_img_ref)
+        vol_img_ref = self.generate_large_fibers(indx_vessel, indx_vessel_cen, vol_img_ref)
 
         if self.params.is_exist_ray_cell:
             for idx, width in zip(ray_cell_x_ind, ray_cell_width):
