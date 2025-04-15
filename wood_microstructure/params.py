@@ -131,6 +131,12 @@ class RayCellParams:
             self._num_grid_nodes = self.x_grid.size()
         return self._num_grid_nodes
 
+    def to_json(self, json_file: str):
+        """Save the parameters to a JSON file"""
+        data = {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        with open(json_file, 'w') as f:
+            json.dump(data, f, indent=4)
+
     @classmethod
     def from_json(cls, json_file: str) -> list['RayCellParams']:
         """Create an instance from a JSON file"""

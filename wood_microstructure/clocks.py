@@ -6,7 +6,7 @@ from typing import Dict
 
 clocks: Dict[str, 'Clock'] = {}
 
-from .loggers import logger
+from .loggers import get_logger
 
 
 class Clock():
@@ -19,6 +19,7 @@ class Clock():
 
     def __init__(self, name: str):
         super().__init__()
+        self.logger = get_logger()
         self.name = name
         self.cumul = 0
         self.cumul_local = 0
@@ -54,7 +55,7 @@ class Clock():
         tot_time = self.cumul + self.cumul_local
         avg_time = tot_time / num_calls * 1000
 
-        logger.info(
+        self.logger.info(
             f'{self.name:>20s}   ({num_calls:>7d} CALLs): {tot_time:>13.4f} s  ({avg_time:>10.1f} ms/CALL)'
             )
 
