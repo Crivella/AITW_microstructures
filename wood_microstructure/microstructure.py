@@ -8,6 +8,7 @@ import numpy.typing as npt
 from PIL import Image
 from scipy.interpolate import CubicSpline, griddata
 
+from . import vessels as v
 from .clocks import Clock
 from .distortion import get_distortion_grid, local_distort
 from .fit_elipse import fit_elipse, fit_ellipse_6pt
@@ -89,113 +90,28 @@ class WoodMicrostructure(ABC):
     @Clock('vessels')
     def get_vessels_all(self, ray_cell_x_ind_all: npt.NDArray = None):
         """Get vessels"""
-        # TODO: need testing
         self.logger.info('=' * 80)
         self.logger.info('Generating vessels...')
         if not self.params.is_exist_vessel:
             return np.empty((0, 2), dtype=int)
-        x_vector = self.params.x_vector
-        y_vector = self.params.y_vector
-
-        # Adjusted for 0-indexing
-        x_rand_1 = np.round((np.random.rand(self.params.vessel_count) * (len(x_vector) - 16) + 8) / 2) * 2 - 2
-        y_rand_1 = np.round((np.random.rand(self.params.vessel_count) * (len(y_vector) - 14) + 7) / 4) * 4 - 1
-        y_rand_2 = np.round((np.random.rand(self.params.vessel_count // 2) * (len(y_vector) - 14) + 7) / 2) * 2 - 1
-        x_rand_2 = np.round((np.random.rand(self.params.vessel_count // 2) * (len(x_vector) - 16) + 8) / 2) * 2 - 1
-
-        x_rand_all = np.concatenate((x_rand_1, x_rand_2), axis=0)
-        y_rand_all = np.concatenate((y_rand_1, y_rand_2), axis=0)
-        vessel_all = np.column_stack((x_rand_all, y_rand_all))
-
-        vessel_all = self.vessel_filter_close(vessel_all)
-        vessel_all = self.vessel_filter_ray_close(vessel_all, ray_cell_x_ind_all)
-        vessel_all = self.vessel_extend(vessel_all)
-        # vessel_all = self.vessel_filter_close(vessel_all)
-        vessel_all = self.vessel_filter_ray_close2(vessel_all, ray_cell_x_ind_all)
-
-        return vessel_all.astype(int)
-
-    def vessel_filter_close(self, vessel_all: npt.NDArray):
-        """Filter the vessel that are too close to the other vessels"""
-        self.logger.debug('  -- Vessel filter close --')
-        all_idx = []
-        done = set()
-        for i, vessel in enumerate(vessel_all):
-            if i in done:
-                continue
-            dist = np.abs(vessel_all - vessel)
-            mark0 = np.where((dist[:, 0] <= 6) & (dist[:, 1] <= 4))[0]
-            all_idx.append(i)
-            done.update(mark0)
-
-        return vessel_all[all_idx]
-
-    def vessel_filter_ray_close(self, vessel_all: npt.NDArray, ray_cell_x_ind_all: npt.NDArray):
-        """Filter the vessel that are too close to the ray cells"""
-        self.logger.debug('  -- Vessel filter ray close --')
-        all_idx = []
-        for i, vessel in enumerate(vessel_all):
-            diff = vessel[1] - ray_cell_x_ind_all
-            if not np.any((diff >= -3) & (diff <= 4)):
-                all_idx.append(i)
-        return vessel_all[all_idx]
-
-    def vessel_filter_ray_close2(self, vessel_all: npt.NDArray, ray_cell_x_ind_all: npt.NDArray):
-        """Filter the vessel that too close to the ray cells"""
-        self.logger.debug('  -- Vessel filter ray close 2 --')
-
         lx = len(self.params.x_vector)
         ly = len(self.params.y_vector)
 
-        all_idx = []
-        for i, vessel in enumerate(vessel_all):
-            diff = vessel[1] - ray_cell_x_ind_all
-            if not np.any((diff >= -3) & (diff <= 4)) and vessel[0] < lx - 5 and vessel[1] < ly - 5:
-                all_idx.append(i)
-        return vessel_all[all_idx]
 
-    def vessel_extend(self, vessel_all: npt.NDArray):
-        """The vessels are extended. Some vessels are extended to be double-vessel cluster, some are
-        triple-vessel clusters."""
-        vessel_all_extend = np.empty((0, 2))
+        vessel_all = v.generate_indexes(self.params.vessel_count, lx, ly)
+        self.logger.debug('  -- Vessel filter close --')
+        vessel_all = v.filter_close(vessel_all)
+        self.logger.debug('  -- Vessel filter ray close --')
+        vessel_all = v.filter_ray_close(vessel_all, ray_cell_x_ind_all)
         self.logger.debug('  -- Vessel extend --')
-        for vessel in vessel_all:
-            dist = vessel_all - vessel
+        vessel_all = v.extend(vessel_all, lx, ly)
+        # vessel_all = self.vessel_filter_close(vessel_all)
+        self.logger.debug('  -- Vessel filter ray close --')
+        vessel_all = v.filter_ray_close(vessel_all, ray_cell_x_ind_all)
+        self.logger.debug('  -- Vessel filter edge --')
+        vessel_all = v.filter_edge(vessel_all, lx, ly)
 
-            mark0 = np.where((dist[:, 0] <= 24) & (dist[:, 0] >= -8) & (np.abs(dist[:, 1]) <= 8))[0]
-            mark1 = np.where((dist[:, 0] <= 12) & (dist[:, 0] >= -6) & (np.abs(dist[:, 1]) <= 6))[0]
-
-            sign1 = np.random.choice([-1, 1])
-            sign2 = np.random.choice([-1, 1])
-
-            if len(mark0) > 1:
-                vessel_all_extend = np.vstack((vessel_all_extend, vessel))
-                possibility = np.random.rand(1)
-                if len(mark1) <= 1:
-                    if possibility < 0.2:
-                        temp = [vessel[0] + 6 + sign1, vessel[1] + sign2 * 2]
-                        vessel_all_extend = np.vstack((vessel_all_extend, temp))
-                    elif possibility < 0.5:
-                        temp = [vessel[0] + 6, vessel[1]]
-                        vessel_all_extend = np.vstack((vessel_all_extend, temp))
-            else:
-                if vessel[0] + 12 < len(self.params.x_vector) and vessel[1] + 10 < len(self.params.y_vector):
-                    temp0 = [vessel[0] + 5 + sign1, vessel[1]]
-                    possibility = np.random.rand(1)
-                    if possibility < 0.3:
-                        temp = np.vstack((
-                            temp0,
-                            [temp0[0] + 5, temp0[1] + 2 * sign2]
-                        ))
-                    else:
-                        temp = np.vstack((
-                            temp0,
-                            [temp0[0] + 5 + sign2, temp0[1]]
-                        ))
-                    vessel_all_extend = np.vstack((vessel_all_extend, vessel, temp))
-                else:
-                    vessel_all_extend = np.vstack((vessel_all_extend, vessel))
-        return vessel_all_extend
+        return vessel_all.astype(int)
 
     def fiber_filter_in_vessel(self, vessel_all: npt.NDArray):
         """This function is used to remove the fibers in the vessels"""
