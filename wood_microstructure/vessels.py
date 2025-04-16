@@ -2,6 +2,8 @@
 import numpy as np
 import numpy.typing as npt
 
+from .clocks import Clock
+
 __all__ = [
     'generate_indexes',
     'filter_close',
@@ -10,6 +12,7 @@ __all__ = [
     'extend',
 ]
 
+@Clock('vessels')
 def generate_indexes(vessel_count:int, lx: int, ly: int) -> npt.NDArray:
     """Generate vessel indexes.
 
@@ -33,7 +36,7 @@ def generate_indexes(vessel_count:int, lx: int, ly: int) -> npt.NDArray:
 
     return vessel_all.astype(int)
 
-
+@Clock('vessels')
 def filter_close(vessel_all: npt.NDArray) -> npt.NDArray:
     """Filter the vessel that are too close to the other vessels
 
@@ -56,6 +59,7 @@ def filter_close(vessel_all: npt.NDArray) -> npt.NDArray:
 
     return vessel_all[all_idx]
 
+@Clock('vessels')
 def filter_ray_close(vessel_all: npt.NDArray, ray_cell_x_ind_all: npt.NDArray) -> npt.NDArray:
     """Filter the vessel that are too close to the ray cells
 
@@ -73,6 +77,7 @@ def filter_ray_close(vessel_all: npt.NDArray, ray_cell_x_ind_all: npt.NDArray) -
             all_idx.append(i)
     return vessel_all[all_idx]
 
+@Clock('vessels')
 def filter_edge(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
     """Filter the vessels that are too close to the edge of the grid.
 
@@ -90,6 +95,7 @@ def filter_edge(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
             all_idx.append(i)
     return vessel_all[all_idx]
 
+@Clock('vessels')
 def extend(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
     """The vessels are extended. Some vessels are extended to be double-vessel cluster, some are
     triple-vessel clusters.
@@ -140,3 +146,55 @@ def extend(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
             else:
                 vessel_all_extend = np.vstack((vessel_all_extend, vessel))
     return vessel_all_extend
+
+@Clock('vessels')
+def get_grid_idx_in_vessel(vessel_all: npt.NDArray) -> npt.NDArray:
+    """Get the the indexes of the grid nodes inside the vessels.
+
+    Args:
+        vessel_all (npt.NDArray): Vessel indexes (shape: (vessel_count, 2))
+
+    Returns:
+        npt.NDArray: Array of shape (vessel_count, 6, 2) with the indexes of the grid nodes inside the vessels.
+                     Every vessel gives 6 x/y grid node indexes.
+    """
+    num_vess = vessel_all.shape[0]  # (num_vess, 2)
+
+    indexes = np.empty((num_vess, 6, 2), dtype=int)
+    indexes[:, :, :] = vessel_all[:, np.newaxis, :]
+    indexes += [
+        (-1, -2),
+        (+1, -2),
+        (-2, +0),
+        (+2, +0),
+        (-1, +2),
+        (+1, +2)
+    ]
+
+    return indexes
+
+@Clock('vessels')
+def get_grid_idx_edges(vessel_all: npt.NDArray) -> npt.NDArray:
+    """Get the indexes of the grid nodes at the edges of the vessels.
+
+    Args:
+        vessel_all (npt.NDArray): Vessel indexes (shape: (vessel_count, 2))
+
+    Returns:
+        npt.NDArray: Array of shape (vessel_count, 6, 2) with the indexes of the grid nodes at the edges of the vessels.
+                     Every vessel gives 6 x/y grid node indexes.
+    """
+    num_vess = vessel_all.shape[0]  # (num_vess, 2)
+
+    indexes = np.empty((num_vess, 6, 2), dtype=int)
+    indexes[:, :, :] = vessel_all[:, np.newaxis, :]
+    indexes += [
+        (-3, -1),
+        (-3, +1),
+        (+0, -3),
+        (+0, +3),
+        (+3, -1),
+        (+3, +1)
+    ]
+
+    return indexes
