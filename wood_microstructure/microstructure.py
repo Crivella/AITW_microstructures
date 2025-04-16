@@ -13,7 +13,7 @@ from .clocks import Clock
 from .distortion import get_distortion_grid, local_distort
 from .fit_elipse import fit_elipse, fit_ellipse_6pt
 from .loggers import add_file_logger, get_logger
-from .params import RayCellParams
+from .params import BirchParams
 
 
 class WoodMicrostructure(ABC):

@@ -7,42 +7,8 @@ import numpy.typing as npt
 
 
 @dataclass
-class RayCellParams:
-    """Ray cell parameters"""
-    random_seed: int = 42
-
-    size_volume: tuple[int, int, int] = (500, 1200, 300)
-
-    cell_r: float = 14.5
-    cell_length: float = 2341
-    cell_length_variance: float = 581
-    cell_wall_thick: float = 2
-
-    ray_height: float = 42
-    ray_space: float = 20
-
-    ray_cell_length: float = 62
-    ray_cell_variance: float = 15
-    ray_cell_num: float = 11.33
-    ray_cell_num_std: float = 3.39
-
-    vessel_length: float = 780
-    vessel_length_variance: float = 195
-
-    is_exist_vessel: bool = True
-    is_exist_ray_cell: bool = True
-
-    save_slice: int = 1
-    save_volume_as_3d: bool = True
-    write_local_deform_data: bool = True
-    write_global_deform_data: bool = False
-
-    # Not user defined
-    slice_interest_space: int = 100
-    cell_end_thick: int = 4
-    neighbor_local = np.array([[-1, 0, 1, 0], [0, -1, 0, 1]], dtype=int)
-    vessel_count: int = 50
-
+class BaseParams:
+    """Base class for parameters"""
     # Internal parameters
     _size_im_enlarge: tuple[int, int, int] = None
     _x_vector: npt.NDArray = None
@@ -138,7 +104,7 @@ class RayCellParams:
             json.dump(data, f, indent=4)
 
     @classmethod
-    def from_json(cls, json_file: str) -> list['RayCellParams']:
+    def from_json(cls, json_file: str) -> list['BirchParams']:
         """Create an instance from a JSON file"""
         with open(json_file, 'r') as f:
             data = json.load(f)
@@ -155,7 +121,44 @@ class RayCellParams:
         return res
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'RayCellParams':
+    def from_dict(cls, data: dict) -> 'BirchParams':
         """Create an instance from a JSON file"""
         data = {cls.params_map.get(k, k): v for k, v in data.items()}
         return cls(**data)
+
+@dataclass
+class BirchParams(BaseParams):
+    """Ray cell parameters"""
+    random_seed: int = 42
+
+    size_volume: tuple[int, int, int] = (500, 1200, 300)
+
+    cell_r: float = 14.5
+    cell_length: float = 2341
+    cell_length_variance: float = 581
+    cell_wall_thick: float = 2
+
+    ray_height: float = 42
+    ray_space: float = 20
+
+    ray_cell_length: float = 62
+    ray_cell_variance: float = 15
+    ray_cell_num: float = 11.33
+    ray_cell_num_std: float = 3.39
+
+    vessel_length: float = 780
+    vessel_length_variance: float = 195
+
+    is_exist_vessel: bool = True
+    is_exist_ray_cell: bool = True
+
+    save_slice: int = 1
+    save_volume_as_3d: bool = True
+    write_local_deform_data: bool = True
+    write_global_deform_data: bool = False
+
+    # Not user defined
+    slice_interest_space: int = 100
+    cell_end_thick: int = 4
+    neighbor_local = np.array([[-1, 0, 1, 0], [0, -1, 0, 1]], dtype=int)
+    vessel_count: int = 50
