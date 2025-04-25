@@ -13,11 +13,12 @@ __all__ = [
 ]
 
 @Clock('vessels')
-def generate_indexes(vessel_count:int, lx: int, ly: int) -> npt.NDArray:
+def generate_indexes(vessel_count1:int, vessel_count2:int, lx: int, ly: int) -> npt.NDArray:
     """Generate vessel indexes.
 
     Args:
-        vessel_count (int): Number of vessels
+        vessel_count1 (int): Number of vessels in the first group
+        vessel_count2 (int): Number of vessels in the second group
         num_x_nodes (int): Number of grid nodes in x direction
         num_y_nodes (int): Number of grid nodes in y direction
 
@@ -25,10 +26,10 @@ def generate_indexes(vessel_count:int, lx: int, ly: int) -> npt.NDArray:
         npt.NDArray: Vessel x/y node_grid-indexes of shape (vessel_count, 2)
     """
     # Adjusted (-1) for 0-indexing
-    x_rand_1 = np.round((np.random.rand(vessel_count) * (lx - 16) + 8) / 2) * 2 - 2
-    y_rand_1 = np.round((np.random.rand(vessel_count) * (ly - 14) + 7) / 4) * 4 - 1
-    y_rand_2 = np.round((np.random.rand(vessel_count // 2) * (ly - 14) + 7) / 2) * 2 - 1
-    x_rand_2 = np.round((np.random.rand(vessel_count // 2) * (lx - 16) + 8) / 2) * 2 - 1
+    x_rand_1 = np.round((np.random.rand(vessel_count1) * (lx - 16) + 8) / 2) * 2 - 2
+    y_rand_1 = np.round((np.random.rand(vessel_count1) * (ly - 14) + 7) / 4) * 4 - 1
+    y_rand_2 = np.round((np.random.rand(vessel_count2) * (ly - 14) + 7) / 2) * 2 - 1
+    x_rand_2 = np.round((np.random.rand(vessel_count2) * (lx - 16) + 8) / 2) * 2 - 1
 
     x_rand_all = np.concatenate((x_rand_1, x_rand_2), axis=0)
     y_rand_all = np.concatenate((y_rand_1, y_rand_2), axis=0)

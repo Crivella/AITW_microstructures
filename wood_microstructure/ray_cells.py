@@ -23,18 +23,22 @@ class RayCellSplineError(Exception):
 
 @Clock('ray_cell')
 @Clock('rcl:indexes')
-def get_x_indexes(ly: int, ray_space: float) -> npt.NDArray:
+def get_x_indexes(ly: int, trim: int, ray_space: float, random_width: float = 10) -> npt.NDArray:
     """Get the x indexes of the ray cells.
 
     Args:
         ly (int): Number of grid nodes in y direction
+        trim (int): Trim `trim` number of grid nodes from the start and end
         ray_space (float): Distance between ray cells
+        space (float): Space between ray cells
+        random_width (float): Randomiazion of the ray cell width (+/- random_width / 2)
 
     Returns:
         npt.NDArray: X indexes of the ray cells
     """
-    ray_cell_linspace = np.arange(9, ly - 10, ray_space)
-    indexes = ray_cell_linspace + np.random.rand(len(ray_cell_linspace)) * 10 - 5
+    rwh = random_width / 2
+    ray_cell_linspace = np.arange(trim - 1, ly - trim, ray_space)
+    indexes = ray_cell_linspace + np.random.rand(len(ray_cell_linspace)) * random_width - rwh
     indexes = np.floor(indexes / 2) * 2
 
     return indexes.astype(int)

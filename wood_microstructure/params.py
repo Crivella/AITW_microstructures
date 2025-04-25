@@ -207,5 +207,5 @@ class SpruceParams(BaseParams):
     vessel_thicker: int = 0
     vessel_count: int = 0
 
-    is_exist_vessel: bool = False
+    is_exist_vessel: bool = True
     is_exist_ray_cell: bool = True
