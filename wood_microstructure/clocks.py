@@ -14,11 +14,11 @@ class Clock():
         if name in clocks:
             return clocks[name]
         new_clock = super().__new__(cls)
+        new_clock.initialize(name)
         clocks[name] = new_clock
         return new_clock
 
-    def __init__(self, name: str):
-        super().__init__()
+    def initialize(self, name: str):
         self.logger = get_logger()
         self.name = name
         self.cumul = 0
