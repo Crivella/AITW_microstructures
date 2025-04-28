@@ -15,6 +15,7 @@ from .microstructure import WoodMicrostructure
 class BirchMicrostructure(WoodMicrostructure):
     save_prefix = 'SaveBirch'
     local_distortion_cutoff = 200
+    ray_height_mod = 6
 
     def __init__(self, *args, **kwargs):
         """Initialize the BirchMicrostructure class"""
@@ -59,7 +60,6 @@ class BirchMicrostructure(WoodMicrostructure):
             ray_cell_x_ind_all = rcl.get_x_indexes(ly, 10, self.params.ray_space, 10)
         return ray_cell_x_ind_all.astype(int)
 
-
     @Clock('vessels')
     def generate_vessel_indexes(self, ray_cell_x_ind_all: npt.NDArray = None):
         """Get vessels"""
@@ -91,7 +91,7 @@ class BirchMicrostructure(WoodMicrostructure):
     @Clock('small_fibers')
     def generate_small_fibers(
             self,
-            skip_fiber_column: npt.NDArray,
+            ray_cell_idx: npt.NDArray,
             indx_skip_all: npt.NDArray,
             input_volume: npt.NDArray
         ) -> npt.NDArray:
@@ -113,7 +113,8 @@ class BirchMicrostructure(WoodMicrostructure):
 
         neigh_loc = self.params.neighbor_local
         # skip_fiber_column = np.array(skip_fiber_column).flatten().astype(int)
-        skip_fiber_column = np.unique((skip_fiber_column[(skip_fiber_column % 2) == 0]) // 2)
+        # skip_fiber_column = np.unique((skip_fiber_column[(skip_fiber_column % 2) == 0]) // 2)
+        ray_cell_idx = np.unique(ray_cell_idx // 2)
 
         sie_x, sie_y, _ = self.params.size_im_enlarge
         gx, gy = self.params.x_grid.shape
@@ -124,6 +125,17 @@ class BirchMicrostructure(WoodMicrostructure):
 
         lx = (gx - 2) // 2
         ly = (gy - 2) // 2
+
+        overflow_mask = np.zeros((lx, ly), dtype=bool)
+        overflow_mask[:, ray_cell_idx] = True
+        for ix, iy in indx_skip_all.reshape(-1, 2):
+            if iy % 2 == 0:
+                continue
+            if (iy + 1) % 4 == 0:
+                ix -= 1
+            if ix % 2 == 0:
+                continue
+            overflow_mask[ix // 2, iy // 2] = True
 
         point_coords = np.empty((lx, ly, 4, 2))
         t_all = np.empty((lx, ly))
@@ -156,24 +168,16 @@ class BirchMicrostructure(WoodMicrostructure):
             r1, r2, h, k = fit_elipse(point_coords)  # Estimate the coefficients of the ellipse. (lx, ly, 4)
 
             # Set a very high value for h in nodes that should be ignored
-            h[:, skip_fiber_column] = 80000
-            # if len(skip_idx) > 0:
-            #     h[skip_idx[:, 0], skip_idx[:, 1]] = 80000
-            for ix, iy in indx_skip_all.reshape(-1, 2):
-                if iy % 2 == 0:
-                    continue
-                if (iy + 1) % 4 == 0:
-                    ix -= 1
-                if ix % 2 == 0:
-                    continue
-                # print(' Skipping:', i_slice, ix // 2, iy // 2)
-                h[ix // 2, iy // 2] = 80000
-            h[self.get_fiber_end_condition(lx, ly, i_slice)] = 80000
+            h[overflow_mask] = None
+            h[self.get_fiber_end_condition(lx, ly, i_slice)] = None
 
             # The alternative is to write the full x/y grid and denote it into sub-domains based on the closest h/k
             # center and than use griddata to get the value of r1/r2/h/k on the full grid but this is slower
             for thick, _r1, _r2, _h, _k in zip(t_all.flatten(), r1.flatten(), r2.flatten(), h.flatten(), k.flatten()):
+                if _h is None:
+                    continue
                 if np.any(np.isnan([_h, _k, _r1, _r2])):
+                    self.logger.warning('NaN in ellipse parameters: %f %f %f %f', _h, _k, _r1, _r2)
                     continue
                 mr = np.floor(max(_r1, _r2))
 

@@ -46,7 +46,8 @@ def get_x_indexes(ly: int, trim: int, ray_space: float, random_width: float = 10
 @Clock('ray_cell')
 @Clock('rcl:distribute')
 def distribute(
-        sie_z: int, indexes: npt.NDArray, cell_num: float, cell_num_std: float, height: float
+        sie_z: int, indexes: npt.NDArray, cell_num: float, cell_num_std: float, height: float,
+        height_mod: int
     ) -> tuple[npt.NDArray, list[npt.NDArray], npt.NDArray]:
     """Distribute the ray cells across the volume
 
@@ -56,6 +57,7 @@ def distribute(
         cell_num (float): number of cells
         cell_num_std (float): standard deviation of the number of cells
         height (float): height of the ray cells
+        height_mod (int): height modifier
 
     Returns:
         tuple[npt.NDArray, list[npt.NDArray]]:
@@ -68,7 +70,7 @@ def distribute(
     m = int(np.ceil(sie_z / cell_num / height + 6))
     for idx in indexes:
         app = [0]
-        ray_cell_space = np.round(16 * np.random.rand(m)) + 6
+        ray_cell_space = np.round(16 * np.random.rand(m)) + height_mod
         rnd = np.round(-30 * np.random.rand())
         # ray_idx = [idx, idx + 1]
         for rs in ray_cell_space:

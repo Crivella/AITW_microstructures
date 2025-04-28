@@ -26,6 +26,11 @@ class WoodMicrostructure(ABC):
 
     @property
     @abstractmethod
+    def ray_height_mod(self) -> int:
+        """Ray height modification value used for ray cell distribution"""
+
+    @property
+    @abstractmethod
     def save_prefix(self) -> int:
         """Local distortion cutoff value"""
 
@@ -84,7 +89,10 @@ class WoodMicrostructure(ABC):
         ray_cell_num_std = self.params.ray_cell_num_std
         ray_height = self.params.ray_height
 
-        return rcl.distribute(sie_z, ray_cell_x_ind_all, ray_cell_num, ray_cell_num_std, ray_height)
+        return rcl.distribute(
+            sie_z, ray_cell_x_ind_all, ray_cell_num, ray_cell_num_std, ray_height,
+            height_mod = self.ray_height_mod,
+        )
 
     def get_fiber_end_condition(self, lx: int, ly: int, i_slice: int) -> npt.NDArray:
         """Get a condition for skipping fiber generation due to fiber ending"""
@@ -689,7 +697,7 @@ class WoodMicrostructure(ABC):
     def save_2d_img(data: npt.NDArray, filename: str):
         """Save 2D data to a TIFF file"""
         img = Image.fromarray(data.astype(np.uint8), mode='L')
-        # img.show()
+        img.show()
         img.save(filename)
 
     @Clock('Disk IO')
