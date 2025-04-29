@@ -236,7 +236,7 @@ class WoodMicrostructure(ABC):
                 if _h is None:
                     continue
                 if np.any(np.isnan([_h, _k, _r1, _r2])):
-                    self.logger.warning('NaN in ellipse parameters: h=%.1f k=%.1ff r1=%.1f r2=%.1f', _h, _k, _r1, _r2)
+                    self.logger.debug('NaN in ellipse parameters: h=%.1f k=%.1ff r1=%.1f r2=%.1f', _h, _k, _r1, _r2)
                     continue
                 mr = np.floor(max(_r1, _r2))
 

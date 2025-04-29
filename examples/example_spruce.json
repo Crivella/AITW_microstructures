@@ -1,0 +1,13 @@
+[
+    {
+        "period_parameter": 300,
+        "sizeVolume": [1000,600,150],
+        "saveSlice": [2],
+        "random_seed": 4
+    },
+    {
+        "sizeVolume": [500,1200,300],
+        "saveSlice": [2],
+        "random_seed": 4
+    }
+]
