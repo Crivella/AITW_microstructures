@@ -587,7 +587,7 @@ class WoodMicrostructure(ABC):
         pass
 
     @abstractmethod
-    def _get_s_grid(self, vess_cond: npt.NDArray) -> npt.NDArray:
+    def _get_sign_grid(self, vess_cond: npt.NDArray) -> npt.NDArray:
         """Get the sign grid of parameters for accumulating the deformation map"""
         pass
 
@@ -656,7 +656,7 @@ class WoodMicrostructure(ABC):
         # s_grid = np.sign(np.random.randn(lx, ly))
         # s_grid[cond] = -1
 
-        s_grid = self._get_s_grid(cond)
+        s_grid = self._get_sign_grid(cond)
         k_grid = self._get_k_grid1(is_close_to_ray, is_close_to_ray_far, cond)
 
         for xc, yc, k, s in zip(xc_grid.flatten(), yc_grid.flatten(), k_grid.reshape(-1, 4), s_grid.flatten()):

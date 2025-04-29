@@ -1,4 +1,4 @@
-"""Ray cells"""
+"""Birch microstructure generation module."""
 import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import CubicSpline
@@ -174,7 +174,7 @@ class BirchMicrostructure(WoodMicrostructure):
 
         return k_grid
 
-    def _get_s_grid(self, vess_cond):
+    def _get_sign_grid(self, vess_cond):
         """Get the sign grid of parameters for accumulating the deformation map"""
         lx, ly = vess_cond.shape
 
