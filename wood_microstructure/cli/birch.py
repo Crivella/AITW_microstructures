@@ -5,7 +5,6 @@ import multiprocessing as mp
 import click
 
 from .. import BirchMicrostructure, BirchParams
-from ..loggers import set_console_level
 from .main import wood_microstructure
 
 verbose_map = {
@@ -17,9 +16,9 @@ verbose_map = {
 def run_from_dict(data: dict, output_dir: str = None, loglevel: int = logging.DEBUG):
     """Run the birch microstructure generation from a dictionary."""
     params = BirchParams.from_dict(data)
-    birch = BirchMicrostructure(params, outdir=output_dir)
-    set_console_level(birch.logger, loglevel)
-    birch.generate()
+    ms = BirchMicrostructure(params, outdir=output_dir)
+    ms.set_console_level(loglevel)
+    ms.generate()
 
 
 

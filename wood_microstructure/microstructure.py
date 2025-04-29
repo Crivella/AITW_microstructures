@@ -13,7 +13,7 @@ from . import ray_cells as rcl
 from .clocks import Clock
 # from .distortion import get_distortion_grid, local_distort
 from .fit_elipse import fit_elipse, fit_ellipse_6pt
-from .loggers import add_file_logger, get_logger
+from .loggers import add_file_logger, get_logger, set_console_level
 from .params import BaseParams
 
 
@@ -88,6 +88,10 @@ class WoodMicrostructure(ABC):
 
         save_param_file = os.path.join(self.root_dir, 'params.json')
         self.params.to_json(save_param_file)
+
+    def set_console_level(self, level: int):
+        """Set the console logging level"""
+        set_console_level(self.logger, level)
 
     def get_root_dir(self) -> str:
         """Get the root directory for saving files"""
