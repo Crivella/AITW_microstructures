@@ -71,7 +71,7 @@ class WoodMicrostructure(ABC):
         """Get the indexes of the vessel centers"""
         pass
 
-    def __init__(self, params: BaseParams, outdir: str = None):
+    def __init__(self, params: BaseParams, outdir: str = None, show_img: bool = False):
         self.params = params
 
         self.x_grid_all = None
@@ -79,6 +79,7 @@ class WoodMicrostructure(ABC):
         self.thickness_all_ray = None
         self.thickness_all_fiber = None
 
+        self.show_img = show_img
         self.outdir = outdir or os.getenv('ROOT_DIR', '.')
 
         self.get_root_dir()
@@ -874,15 +875,16 @@ class WoodMicrostructure(ABC):
 
             self.logger.debug('Saving slice %d to %s', slice_idx, filename)
 
-            self.save_2d_img(vol_img_ref[:, :, i], filename)
+            self.save_2d_img(vol_img_ref[:, :, i], filename, self.show_img)
 
     @staticmethod
     @Clock('Disk IO')
-    def save_2d_img(data: npt.NDArray, filename: str):
+    def save_2d_img(data: npt.NDArray, filename: str, show: bool = False):
         """Save 2D data to a TIFF file"""
         data[np.isnan(data)] = 0
         img = Image.fromarray(data.astype(np.uint8), mode='L')
-        # img.show()
+        if show:
+            img.show()
         img.save(filename)
 
     @Clock('Disk IO')
@@ -968,7 +970,7 @@ class WoodMicrostructure(ABC):
             img_interp = self.apply_deformation(vol_img_ref[..., i], u, v_slice)
 
             filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
-            self.save_2d_img(img_interp, filename)
+            self.save_2d_img(img_interp, filename, self.show_img)
 
     def generate(self):
         """Generate the volume image"""
