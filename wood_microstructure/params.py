@@ -52,6 +52,7 @@ class BaseParams:
     _y_vector: npt.NDArray = None
     _grid: tuple[npt.NDArray, npt.NDArray] = None
     _num_grid_nodes: int = None
+    save_slice_map: dict[int, int] = None
 
     params_map = {
         'sizeVolume': 'size_volume',
@@ -82,6 +83,7 @@ class BaseParams:
         elif isinstance(ss, (tuple, list)):
             ss = tuple(int(s) - 1 for s in ss)
         self.save_slice = ss
+        self.save_slice_map = {s: i for i, s in enumerate(ss)}
 
     @property
     def size_im_enlarge(self):

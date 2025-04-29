@@ -202,11 +202,11 @@ class WoodMicrostructure(ABC):
         skip_cell_thick = 0  # TODO: Should this be a settable parameter?
         # for i_slice in range(sie_z):
         num_slices = len(self.params.save_slice)
-        for slice_idx,i_slice in enumerate(self.params.save_slice):
+        for slice_idx, i_slice in enumerate(self.params.save_slice):
             self.logger.debug('  Small fibers: idx=%d  %d/%d', i_slice, slice_idx + 1, num_slices)
-            x_slice = x_grid_all[:,:, i_slice]
-            y_slice = y_grid_all[:,:, i_slice]
-            t_slice = thick_all[:,:, i_slice]
+            x_slice = x_grid_all[:,:, slice_idx]
+            y_slice = y_grid_all[:,:, slice_idx]
+            t_slice = thick_all[:,:, slice_idx]
 
             # Assignments are split into [:, 0::2] and [1::2, :] to keep into account staggering along x direction
             # every other row
@@ -262,7 +262,7 @@ class WoodMicrostructure(ABC):
                     np.abs(ry_grid - _k)**exp / np.abs(_r2 - thick - skip_cell_thick)**exp
                 )
 
-                vol_img_ref[rx_grid, ry_grid, i_slice] /= 1 + np.exp(-(in_elipse_2 - 1) * 20)
+                vol_img_ref[rx_grid, ry_grid, slice_idx] /= 1 + np.exp(-(in_elipse_2 - 1) * 20)
 
         return vol_img_ref.astype(int)
 
@@ -359,14 +359,14 @@ class WoodMicrostructure(ABC):
 
 
                 # for i_slice in range(sie_z):
-                for i_slice in self.params.save_slice:
+                for slice_idx, i_slice in enumerate(self.params.save_slice):
                     point_coord = np.column_stack((
-                        x_grid_all[six_pt_x, six_pt_y, i_slice],
-                        y_grid_all[six_pt_x, six_pt_y, i_slice]
+                        x_grid_all[six_pt_x, six_pt_y, slice_idx],
+                        y_grid_all[six_pt_x, six_pt_y, slice_idx]
                     ))
                     r1, r2, h, k = fit_ellipse_6pt(point_coord)  # Estimate the coefficients of the ellipse.
 
-                    thick = self.thickness_all_fiber[i1, j, i_slice] + vessel_thicker
+                    thick = self.thickness_all_fiber[i1, j, slice_idx] + vessel_thicker
                     mr = np.floor(max(r1, r2))
 
                     x_grid, y_grid = np.mgrid[
@@ -383,7 +383,7 @@ class WoodMicrostructure(ABC):
                     )
                     mul = 1 + np.exp(-(in_elipse2 - 1) / 0.05)
                     cond = in_elipse1 <= 1
-                    vol_img_ref[x_grid[cond], y_grid[cond], i_slice] = 255 / mul[cond]
+                    vol_img_ref[x_grid[cond], y_grid[cond], slice_idx] = 255 / mul[cond]
 
         return vol_img_ref
 
@@ -452,6 +452,8 @@ class WoodMicrostructure(ABC):
         self.logger.info('Generating ray cell...')
         vol_img_ref_final = np.copy(input_volume)
 
+        slice_map = self.params.save_slice_map
+
         ray_cell_length = self.params.ray_cell_length
         ray_height = self.params.ray_height
 
@@ -493,15 +495,16 @@ class WoodMicrostructure(ABC):
                     continue
                 if t not in self.params.save_slice:
                     continue
+                t_idx = slice_map[t]
 
                 vel = vessel_end_loc[i]
                 vel = vel[vel <= sie_x + rcl_d2]
 
-                interp_x0 = x_grid_all[:, column_idx, t]
-                interp_y0 = y_grid_all[:, column_idx, t]
-                interp_x1 = x_grid_all[:, column_idx + 1, t]
-                interp_y1 = y_grid_all[:, column_idx + 1, t]
-                interp_thick = thickness_all[:, column_idx, t]
+                interp_x0 = x_grid_all[:, column_idx, t_idx]
+                interp_y0 = y_grid_all[:, column_idx, t_idx]
+                interp_x1 = x_grid_all[:, column_idx + 1, t_idx]
+                interp_y1 = y_grid_all[:, column_idx + 1, t_idx]
+                interp_thick = thickness_all[:, column_idx, t_idx]
                 tmp_2 = rcl_d2_r if m2 % 2 else 0
 
                 try:
@@ -546,27 +549,24 @@ class WoodMicrostructure(ABC):
                         if idx not in valid_idx:
                             continue
                         if j_slice == np.min(ray_width):
-                            vol_img_ref_final[
-                                idx,
-                                int(y_interp1_c[idx]):int(y_interp2_c[idx] + 1),
-                                int(cell_center[idx, 2]):int(cell_neigh_pt[2, 1] + 1)
-                            ] = 255
+                            y_idxs = np.arange(int(y_interp1_c[idx]), int(y_interp2_c[idx] + 1))
+                            z_idxs = np.arange(int(cell_center[idx, 2]), int(cell_neigh_pt[2, 1] + 1))
                         elif j_slice == np.max(ray_width):
-                            vol_img_ref_final[
-                                idx,
-                                int(y_interp1_c[idx]):int(y_interp2_c[idx] + 1),
-                                int(cell_neigh_pt[2, 0]):int(cell_center[idx, 2])
-                            ] = 255
+                            y_idxs = np.arange(int(y_interp1_c[idx]), int(y_interp2_c[idx] + 1))
+                            z_idxs = np.arange(int(cell_neigh_pt[2, 0]), int(cell_center[idx, 2] + 1))
                         else:
-                            vol_img_ref_final[
-                                idx,
-                                int(y_interp1_c[idx]):int(y_interp2_c[idx] + 1),
-                                int(cell_neigh_pt[2, 0]):int(cell_neigh_pt[2, 1])
-                            ] = 255
+                            y_idxs = np.arange(int(y_interp1_c[idx]), int(y_interp2_c[idx] + 1))
+                            z_idxs = np.arange(int(cell_neigh_pt[2, 0]), int(cell_neigh_pt[2, 1]))
+                        z_idxs = [slice_map[z] for z in z_idxs if z in slice_map]
+                        if z_idxs:
+                            y,z = np.meshgrid(y_idxs, z_idxs)
+                            vol_img_ref_final[idx, y, z] = 255
 
-
-                        for j in range(int(cell_neigh_pt[1, 0]), int(cell_neigh_pt[1, 1]) + 1):
-                            for s in range(int(cell_neigh_pt[2, 0]), int(cell_neigh_pt[2, 1]) + 1):
+                        for s in range(int(cell_neigh_pt[2, 0]), int(cell_neigh_pt[2, 1]) + 1):
+                            if s not in slice_map:
+                                continue
+                            s = slice_map[s]
+                            for j in range(int(cell_neigh_pt[1, 0]), int(cell_neigh_pt[1, 1]) + 1):
                                 outer_elipse = (
                                     (j - cell_center[idx, 1])**2 / cell_r[idx, 0]**2 +
                                     (s - cell_center[idx, 2])**2 / cell_r[idx, 1]**2
@@ -742,8 +742,8 @@ class WoodMicrostructure(ABC):
         v_all = np.zeros((sie_x, sie_y, len(self.params.save_slice)), dtype=float)
         for i, slice_idx in enumerate(self.params.save_slice):
             self.logger.debug('slice: %d/%d', i, len(self.params.save_slice))
-            x_node_grid = x_grid_all[..., slice_idx]
-            y_node_grid = y_grid_all[..., slice_idx]
+            x_node_grid = x_grid_all[..., i]
+            y_node_grid = y_grid_all[..., i]
             # self.logger.debug('x_node_grid.shape: %s', x_node_grid.shape)
 
             base_k = 0
@@ -869,12 +869,12 @@ class WoodMicrostructure(ABC):
         """Save the requested slice of the generated volume image"""
         self.logger.debug('vol_img_ref.shape: %s', vol_img_ref.shape)
         self.logger.debug('min/max: %f %f', np.min(vol_img_ref), np.max(vol_img_ref))
-        for slice_idx in self.params.save_slice:
+        for i,slice_idx in enumerate(self.params.save_slice):
             filename = os.path.join(self.root_dir, dirname, f'volImgRef_{slice_idx+1:05d}.tiff')
 
             self.logger.debug('Saving slice %d to %s', slice_idx, filename)
 
-            self.save_2d_img(vol_img_ref[:, :, slice_idx], filename)
+            self.save_2d_img(vol_img_ref[:, :, i], filename)
 
     @staticmethod
     @Clock('Disk IO')
@@ -882,7 +882,7 @@ class WoodMicrostructure(ABC):
         """Save 2D data to a TIFF file"""
         data[np.isnan(data)] = 0
         img = Image.fromarray(data.astype(np.uint8), mode='L')
-        img.show()
+        # img.show()
         img.save(filename)
 
     @Clock('Disk IO')
@@ -931,7 +931,9 @@ class WoodMicrostructure(ABC):
         for i,width in enumerate(ray_cell_width):
             self.logger.debug('   %d %s', i+1, width)
 
-        vol_img_ref = np.full(self.params.size_im_enlarge, 255, dtype=float)
+        shape = list(self.params.size_im_enlarge)
+        shape[2] = len(self.params.save_slice)
+        vol_img_ref = np.full(shape, 255, dtype=float)
         vol_img_ref = self.generate_small_fibers(ray_cell_x_ind, indx_skip_all, vol_img_ref)
         vol_img_ref = self.generate_large_fibers(indx_ves_edges, indx_vessel_cen, vol_img_ref)
 
@@ -963,7 +965,7 @@ class WoodMicrostructure(ABC):
                 v_slice = v
             self.save_distortion(u, v_slice, slice_idx)
 
-            img_interp = self.apply_deformation(vol_img_ref[..., slice_idx], u, v_slice)
+            img_interp = self.apply_deformation(vol_img_ref[..., i], u, v_slice)
 
             filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
             self.save_2d_img(img_interp, filename)

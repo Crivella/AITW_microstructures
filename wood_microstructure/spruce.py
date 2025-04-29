@@ -85,10 +85,10 @@ class SpruceMicrostructure(WoodMicrostructure):
                 thickness_all_ray[i, j, :] = CubicSpline(slice_interest, thickness_interp_ray[i, j, :])(interp_z)
                 thickness_all_fiber[i, j, :] = CubicSpline(slice_interest, thickness_interp_fiber[i, j, :])(interp_z)
 
-        self.x_grid_all = x_grid_all
-        self.y_grid_all = y_grid_all
-        self.thickness_all_ray = thickness_all_ray
-        self.thickness_all_fiber = thickness_all_fiber
+        self.x_grid_all = x_grid_all[..., self.params.save_slice]
+        self.y_grid_all = y_grid_all[..., self.params.save_slice]
+        self.thickness_all_ray = thickness_all_ray[..., self.params.save_slice]
+        self.thickness_all_fiber = thickness_all_fiber[..., self.params.save_slice]
 
         return x_grid_all, y_grid_all, thickness_all_ray, thickness_all_fiber
 

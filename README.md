@@ -52,7 +52,7 @@ You can also add it to either `~/.bashrc` or, if you are using a virtual environ
 
 ## NOTE
 
-- W.R.T the matlab code, `saveSlice` in the json file can be a `list[int]` instead of just an `int` and the values are **0-indexed** instead of 1-indexed.
+- W.R.T the matlab code, `saveSlice` in the json file can be a `list[int]` instead of just an `int`.
 - Most functions have been optimized to have the loop over the Z slices as the outermost one.
   Since the Z slices are almost always treated independently, we can than run the loops over only the slices of interest.
 - Need more testing with vessels
