@@ -566,7 +566,6 @@ class WoodMicrostructure(ABC):
                         for s in range(int(cell_neigh_pt[2, 0]), int(cell_neigh_pt[2, 1]) + 1):
                             if s not in slice_map:
                                 continue
-                            s = slice_map[s]
                             for j in range(int(cell_neigh_pt[1, 0]), int(cell_neigh_pt[1, 1]) + 1):
                                 outer_elipse = (
                                     (j - cell_center[idx, 1])**2 / cell_r[idx, 0]**2 +
@@ -578,8 +577,7 @@ class WoodMicrostructure(ABC):
                                         (j - cell_center[idx, 1])**2 / (cell_r[idx, 0] - thick_interp_c[idx])**2 +
                                         (s - cell_center[idx, 2])**2 / (cell_r[idx, 1] - thick_interp_c[idx])**2
                                     )
-                                    # print('   ', j, s)
-                                    vol_img_ref_final[idx, j, s] = int(
+                                    vol_img_ref_final[idx, j, slice_map[s]] = int(
                                         (1 / (1 + np.exp(-(inner_elipse - 1) / .05))) * 255
                                     )
 
