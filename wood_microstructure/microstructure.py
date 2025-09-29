@@ -977,16 +977,6 @@ class WoodMicrostructure(Clock, ABC):
 
     def report(self):
         """Final report for the generation"""
-        # msg = f'{self.name:>20s}   ({num_calls:>7d} CALLs): {tot_time:>13.4f} s  ({avg_time:>10.1f} ms/CALL)'
-        # res = ['Time report:']
-        # for clock, dct in self.clocks.items():
-        #     num_calls = dct['num_calls']
-        #     tot_time = dct['tot_time']
-        #     avg_time = (tot_time / num_calls * 1000) if num_calls else 0
-        #     msg = f'{clock:>20s}   ({num_calls:>7d} CALLs): {tot_time:>13.4f} s  ({avg_time:>10.1f} ms/CALL)'
-        #     res.append(msg)
-
-        # self.logger.info('\n'.join(res))
         self.logger.info(self.report_clocks())
 
     def generate(self):
@@ -994,8 +984,5 @@ class WoodMicrostructure(Clock, ABC):
         self.create_dirs()
         self._generate()
 
-        # time_reports = Clock.report_all()
-        # self.logger.info(f'Time report:\n{time_reports}')
-        # self.logger.info(f'Time report:\n{str(self.clocks)}')
         self.report()
         self.logger.info('======== DONE ========')

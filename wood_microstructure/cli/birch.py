@@ -24,7 +24,6 @@ def run_from_dict(data: dict, output_dir: str = None, loglevel: int = logging.DE
 
 @wood_microstructure.command()
 @click.argument('json_file', required=True, type=click.Path(exists=True))
-# @click.option('--json_file', type=click.Path(exists=True), help='JSON file with parameters')
 @click.option('--output_dir', type=click.Path(), help='Output directory')
 @click.option('-v', '--verbose', help='Verbose output', count=True)
 # @click.option('--log_file', type=click.Path(), help='Log file name')
@@ -35,9 +34,6 @@ def birch(json_file, output_dir, verbose, max_parallel):
         raise ValueError('JSON file is required')
 
     loglevel = verbose_map.get(verbose, logging.DEBUG)
-    # set_console_level(logger, verbose_map.get(verbose, logging.DEBUG))
-    # if log_file:
-    #     add_file_logger(logger, log_file)
 
     with open(json_file, 'r') as f:
         data = json.load(f)
