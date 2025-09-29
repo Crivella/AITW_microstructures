@@ -137,7 +137,7 @@ class BaseParams:
             json.dump(data, f, indent=4)
 
     @classmethod
-    def from_json(cls, json_file: str) -> list['BirchParams']:
+    def from_json(cls, json_file: str) -> list['BaseParams']:
         """Create an instance from a JSON file"""
         with open(json_file, 'r') as f:
             data = json.load(f)
@@ -154,7 +154,7 @@ class BaseParams:
         return res
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'BirchParams':
+    def from_dict(cls, data: dict) -> 'BaseParams':
         """Create an instance from a JSON file"""
         data = {cls.params_map.get(k, k): v for k, v in data.items()}
         return cls(**data)
