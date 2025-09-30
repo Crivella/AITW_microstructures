@@ -6,14 +6,23 @@ from functools import wraps
 
 
 class Clock():
+    """Class to time the execution of functions.
+    Usage:
+    class MyClass(Clock):
+        @Clock.register('my_function')
+        def my_function(self):
+            pass
+    """
+    CLOCK_MARKER = '__clock__'
+
     def __init__(self, *args, **kwargs):
         self.clocks = {'total': defaultdict(int)}
         super().__init__(*args, **kwargs)
 
     def __getattribute__(self, name):
         res = super().__getattribute__(name)
-        if callable(res) and not hasattr(res, '__wrapped__'):
-            clock_lst = getattr(res, '__clock__', None)
+        if callable(res) and hasattr(res, Clock.CLOCK_MARKER) and not hasattr(res, '__wrapped__'):
+            clock_lst = getattr(res, Clock.CLOCK_MARKER, None)
             if clock_lst is not None:
                 clock_dcts = []
                 for clock in clock_lst:
@@ -52,8 +61,10 @@ class Clock():
     @staticmethod
     def register(name: str):
         def decorator(func):
-            if not hasattr(func, '__clock__'):
+            if not hasattr(func, Clock.CLOCK_MARKER):
+                setattr(func, Clock.CLOCK_MARKER, [])
                 func.__clock__ = []
-            func.__clock__.insert(0, name)
+            ptr = getattr(func, Clock.CLOCK_MARKER)
+            ptr.insert(0, name)
             return func
         return decorator
