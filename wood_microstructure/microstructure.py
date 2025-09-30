@@ -897,6 +897,8 @@ class WoodMicrostructure(Clock, ABC):
     @Clock.register('Disk IO')
     def save_2d_img(data: npt.NDArray, filename: str, show: bool = False):
         """Save 2D data to a TIFF file"""
+        dirname = os.path.dirname(filename)
+        os.makedirs(dirname, exist_ok=True)
         data[np.isnan(data)] = 255
         img = Image.fromarray(data.astype(np.uint8), mode='L')
         if show:
