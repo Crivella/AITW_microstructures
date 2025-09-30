@@ -457,8 +457,6 @@ class WoodMicrostructure(Clock, ABC):
         Returns:
             npt.NDArray: Modified 3D gray-scale image volume with ray cells
         """
-        self.logger.info('=' * 80)
-        self.logger.info('Generating ray cell...')
         vol_img_ref_final = np.copy(input_volume)
 
         slice_map = self.params.save_slice_map
@@ -959,8 +957,9 @@ class WoodMicrostructure(Clock, ABC):
         vol_img_ref = self.generate_large_fibers(indx_ves_edges, indx_vessel_cen, vol_img_ref)
 
         if self.params.is_exist_ray_cell:
-            for idx, width in zip(ray_cell_x_ind, ray_cell_width):
-                self.logger.debug('Generating ray cell: %s / %s', idx, width)
+            self.logger.info('Generating ray cells...')
+            for i,(idx, width) in enumerate(zip(ray_cell_x_ind, ray_cell_width)):
+                self.logger.info(f'Generating ray cell: {idx =}, {width = }  ({i+1}/{len(ray_cell_x_ind)})')
                 vol_img_ref = self.generate_raycell(idx, width, vol_img_ref, self.thickness_all_ray)
 
         # Save the generated volume
@@ -983,6 +982,7 @@ class WoodMicrostructure(Clock, ABC):
             # code for spruce
             pass
 
+        self.logger.info('=' * 80)
         for i, slice_idx in enumerate(self.params.save_slice):
             self.logger.debug('Saving deformation for slice %d', slice_idx)
             if self.params.is_exist_ray_cell:
@@ -991,6 +991,7 @@ class WoodMicrostructure(Clock, ABC):
                 v_slice = v
             self.save_distortion(u, v_slice, slice_idx)
 
+            self.logger.info(f'Applying deformation... slice {slice_idx} ({i+1}/{len(self.params.save_slice)})')
             img_interp = self.apply_deformation(vol_img_ref[..., i], u, v_slice)
 
             filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
