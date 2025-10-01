@@ -4,6 +4,7 @@ import os
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
+import nrrd
 import numpy as np
 import numpy.typing as npt
 from PIL import Image
@@ -1014,7 +1015,16 @@ class WoodMicrostructure(Clock, ABC):
         """Save 3D data to a npy file"""
         WoodMicrostructure.ensure_dir(filename)
         data[np.isnan(data)] = 255
-        np.save(filename, data)
+
+        _, ext = os.path.splitext(os.path.basename(filename))
+        ext = ext.lower()
+
+        if ext == 'nrrd':
+            nrrd.write(filename, data.astype(np.uint8), index_order='C')
+        elif ext == '.npy':
+            np.save(filename, data)
+        else:
+            raise ValueError(f'Unsupported 3D image format: {ext}')
 
     @Clock.register('I/O')
     @Clock.register('I/O:csv')
@@ -1125,11 +1135,16 @@ class WoodMicrostructure(Clock, ABC):
             filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
             self.save_2d_img(img_interp, filename, self.show_img)
 
+
+        v_fmt = self.params.save_volume_format.lower()
         if self.params.apply_global_deform:
+            if self.params.save_volume_as_3d:
+                filename = os.path.join(self.root_dir, 'FinalVolume3D', f'BeforeGlobalVolume.{v_fmt}')
+                self.save_3d_img(vol_img_ref, filename)
             vol_img_ref = self.apply_global_deformation(vol_img_ref, u1, v1)
 
         if self.params.save_volume_as_3d:
-            filename = os.path.join(self.root_dir, 'FinalVolume3D', 'FinalVolume.npy')
+            filename = os.path.join(self.root_dir, 'FinalVolume3D', f'FinalVolume.{v_fmt}')
             self.save_3d_img(vol_img_ref, filename)
 
     def report(self):

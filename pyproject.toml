@@ -25,7 +25,8 @@ dependencies = [
     "scipy",
     "pillow",
     "trogon", "click",
-    "rich", "rich-click"
+    "rich", "rich-click",
+    "pynrrd",
 ]
 
 # [project.urls]
@@ -35,7 +36,6 @@ dependencies = [
 utils = [
     "matplotlib",
     "mayavi",
-    "pynrrd",
 ]
 pre-commit = [
     "pre-commit",

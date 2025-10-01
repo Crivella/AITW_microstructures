@@ -1,6 +1,7 @@
 import os
 import sys
 
+import nrrd
 import numpy as np
 
 from .main import click, postproc
@@ -14,32 +15,27 @@ from .main import click, postproc
     default=None,
     help='Threshold value for binarization (0-255)',
     )
-def convert_volume_to_nrrd(input_file, threshold):
+def volume_npy_to_nrrd(input_file, threshold):
     """Convert a numpy volume file to nrrd format."""
-    try:
-        import nrrd
-    except ImportError:
-        print('Please install the package with the extra [utils] dependency to use this feature.')
-        sys.exit(1)
     dirname = os.path.dirname(input_file)
     name, ext = os.path.splitext(os.path.basename(input_file))
     outfile = os.path.join(dirname, f'{name}.nrrd')
 
     data = np.ascontiguousarray(np.load(input_file))
-    print(f'Loaded volume data from `{input_file}` with shape {data.shape}')
+    click.echo(f'Loaded volume data from `{input_file}` with shape {data.shape}')
 
     if threshold is not None:
         w = data > threshold
         data[w] = 1
         data[~w] = 0
-        print(f'Binarized volume data with threshold {threshold}')
+        click.echo(f'Binarized volume data with threshold {threshold}')
 
     nrrd.write(
         outfile,
         data,
         index_order='C',
     )
-    print(f'Saved nrrd file to `{outfile}`')
+    click.echo(f'Saved nrrd file to `{outfile}`')
 
 @postproc.command()
 @click.argument('input_file', required=True, type=click.Path(exists=True))
@@ -56,15 +52,21 @@ def plot_volume(input_file, threshold):
         from mayavi import mlab
         from tvtk.util import ctf
     except ImportError:
-        print('Please install the package with the extra [utils] dependency to use this feature.')
+        click.echo('Please install the package with the extra [utils] dependency to use this feature.')
         sys.exit(1)
-    data = np.load(input_file)
-    print(f'Loaded volume data from `{input_file}` with shape {data.shape}')
+    if input_file.endswith('.nrrd'):
+        data, header = nrrd.read(input_file, index_order='C')
+    elif input_file.endswith('.npy'):
+        data = np.load(input_file)
+    else:
+        click.echo('Unsupported file format. Please provide a .nrrd or .npy file.')
+        sys.exit(1)
+    click.echo(f'Loaded volume data from `{input_file}` with shape {data.shape}')
 
     w = data > threshold
     data[w] = 1
     data[~w] = 0
-    print(f'Binarized volume data with threshold {threshold}')
+    click.echo(f'Binarized volume data with threshold {threshold}')
 
     mlab.figure(bgcolor=(1.0, 1.0, 1.0), size=(1600, 1600))
     src = mlab.pipeline.scalar_field(data)
@@ -79,3 +81,8 @@ def plot_volume(input_file, threshold):
 
     mlab.axes()
     mlab.show()
+
+__all__ = [
+    'volume_npy_to_nrrd',
+    'plot_volume',
+]

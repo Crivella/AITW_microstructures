@@ -31,3 +31,8 @@ def wood_microstructure():
 def postproc():
     """Utility functions"""
     pass
+
+__all__ = [
+    'wood_microstructure',
+    'postproc',
+]

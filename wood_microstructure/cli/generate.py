@@ -41,3 +41,7 @@ def generate(wood_type, json_file, output_dir, verbose, max_parallel):
         pool.starmap(cls.run_from_dict, args)
 
     click.echo(f"Birch microstructure generated and saved to `{output_dir or 'current directory'}`")
+
+__all__ = [
+    'generate'
+]
