@@ -47,13 +47,19 @@ class Clock():
 
     def report_clocks(self) -> str:
         res = ['Time report:']
+        all_tot_time = self.clocks['total']['tot_time']
         for name, clock in self.clocks.items():
             num_calls = clock['num_calls']
 
             tot_time = clock['tot_time']
             avg_time = (tot_time / num_calls * 1000) if num_calls > 0 else 0
 
-            msg = f'{name:>20s}   ({num_calls:>7d} CALLs): {tot_time:>13.4f} s  ({avg_time:>10.1f} ms/CALL)'
+            frc_string = ''
+            if all_tot_time > 0:
+                frc_time = (tot_time / all_tot_time * 100)
+                frc_string = f'{frc_time:5.1f}% '
+
+            msg = f'{name:>20s}   ({num_calls:>7d} CALLs):{frc_string}{tot_time:>13.4f} s  ({avg_time:>10.1f} ms/CALL)'
             res.append(msg)
 
         return '\n'.join(res)
