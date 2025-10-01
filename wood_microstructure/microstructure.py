@@ -266,20 +266,20 @@ class WoodMicrostructure(Clock, ABC):
             # Skip ellipse generation based on mask:
             # - fiber inside ray cell
             # - fiber inside a vessel
-            h[overflow_mask] = None
+            h[overflow_mask] = -1234
             # Skip ellipse generation if fiber has ended along the Z axis
-            h[self.get_fiber_end_condition(lx, ly, i_slice)] = None
+            h[self.get_fiber_end_condition(lx, ly, i_slice)] = -1234
 
             # The alternative is to write the full x/y grid and denote it into sub-domains based on the closest h/k
             # center and than use griddata to get the value of r1/r2/h/k on the full grid but this is slower
             for thick, _r1, _r2, _h, _k, exp in zip(
                 t_all.flatten(), r1.flatten(), r2.flatten(), h.flatten(), k.flatten(), exp_ellipse_2.flatten()
             ):
-                if _h is None:
+                if _h == -1234:
                     # Skip ellipse generation
                     continue
                 if np.any(np.isnan([_h, _k, _r1, _r2])):
-                    self.logger.debug('NaN in ellipse parameters: h=%.1f k=%.1ff r1=%.1f r2=%.1f', _h, _k, _r1, _r2)
+                    self.logger.warning('NaN in ellipse parameters: h=%.1f k=%.1ff r1=%.1f r2=%.1f', _h, _k, _r1, _r2)
                     continue
                 mr = np.floor(max(_r1, _r2))
 
