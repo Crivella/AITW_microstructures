@@ -77,9 +77,6 @@ class WoodMicrostructure(Clock, ABC):
         super().__init__(*args, **kwargs)
 
         self._slice_interest = None
-
-        self.params = params
-
         self.x_grid_all = None
         self.y_grid_all = None
         self.thickness_all_ray = None
@@ -88,10 +85,23 @@ class WoodMicrostructure(Clock, ABC):
         self.show_img = show_img
         self.outdir = outdir or os.getenv('ROOT_DIR', '.')
 
+        # Setup logging
         num = self.get_root_dir()
         log_file = os.path.join(self.root_dir, 'wood_microstructure.log')
         self.logger = get_logger(str(num))
         add_file_logger(self.logger, log_file)
+
+        # Validate and set parameters
+        if params.apply_global_deform and not params.all_slices:
+            self.logger.warning('\n'.join([
+                '',
+                'Global deformation can only be applied when saving all slices.'
+                'Setting `apply_global_deform` to False.',
+                'Set `save_slice` to "all" to enable global deformation.',
+            ]))
+            params.apply_global_deform = False
+
+        self.params = params
 
         save_param_file = os.path.join(self.root_dir, 'params.json')
         self.params.to_json(save_param_file)
@@ -859,7 +869,7 @@ class WoodMicrostructure(Clock, ABC):
 
     @Clock.register('deformation')
     @Clock.register('deform:apply')
-    def apply_deformation(self, slice_ref: npt.NDArray, u: npt.NDArray, v: npt.NDArray) -> npt.NDArray:
+    def apply_local_deformation(self, slice_ref: npt.NDArray, u: npt.NDArray, v: npt.NDArray) -> npt.NDArray:
         """Apply the deformation to the volume image"""
         sie_x, sie_y, _ = self.params.size_im_enlarge
         x_grid, y_grid = np.mgrid[0:sie_x, 0:sie_y]
@@ -870,11 +880,12 @@ class WoodMicrostructure(Clock, ABC):
             (x_interp.flatten(), y_interp.flatten()),
             slice_ref.flatten(),
             (x_grid, y_grid),
-            method='linear'
+            method='linear',
+            fill_value=255
         )
 
         img_interp = Vq.reshape(x_interp.shape)
-        img_interp = np.clip(img_interp, 0, 255)
+        img_interp = np.clip(img_interp, 0, 255).astype(np.uint8)
 
         slice_ref[:,:] = img_interp
 
@@ -891,13 +902,10 @@ class WoodMicrostructure(Clock, ABC):
 
     @Clock.register('deformation')
     @Clock.register('deform:global')
-    def global_deformation(self, vol_img_ref: npt.NDArray, u1: npt.NDArray, v1: npt.NDArray) -> npt.NDArray:
+    def apply_global_deformation(self, vol_img_ref: npt.NDArray, u1: npt.NDArray, v1: npt.NDArray) -> npt.NDArray:
         """Apply global deformation to the volume image"""
         if not self.params.all_slices:
-            self.logger.warning(
-                'Global deformation is only applied when all slices are saved. Skipping global deformation.'
-            )
-            return
+            raise RuntimeError('Global deformation is only applied when all slices are saved.')
         self.logger.info('=' * 80)
         self.logger.info('Global deformation...')
 
@@ -936,7 +944,9 @@ class WoodMicrostructure(Clock, ABC):
                 bounds_error=False,
                 fill_value=255
             )
-            vol_img_ref[..., slice_start:slice_end] = interp(np.stack((x_interp, y_interp, z_interp), axis=-1))
+            vol_img_ref[..., slice_start:slice_end] = interp(
+                np.stack((x_interp, y_interp, z_interp), axis=-1)
+            ).astype(np.uint8)
 
             dirname = 'GlobalDistVolume'
             for slice_idx in range(slice_start, slice_end):
@@ -1001,7 +1011,7 @@ class WoodMicrostructure(Clock, ABC):
     @Clock.register('I/O')
     @Clock.register('I/O:image')
     def save_3d_img(data: npt.NDArray, filename: str):
-        """Save 3D data to a NIfTI file"""
+        """Save 3D data to a npy file"""
         WoodMicrostructure.ensure_dir(filename)
         data[np.isnan(data)] = 255
         np.save(filename, data)
@@ -1106,13 +1116,13 @@ class WoodMicrostructure(Clock, ABC):
             self.save_local_distortion(u, v_slice, slice_idx)
 
             self.logger.info(f'Applying deformation... slice {slice_idx} ({i+1}/{len(self.params.save_slice)})')
-            img_interp = self.apply_deformation(vol_img_ref[..., i], u, v_slice)
+            img_interp = self.apply_local_deformation(vol_img_ref[..., i], u, v_slice)
 
             filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
             self.save_2d_img(img_interp, filename, self.show_img)
 
         if self.params.apply_global_deform:
-            vol_img_ref = self.global_deformation(vol_img_ref, u1, v1)
+            vol_img_ref = self.apply_global_deformation(vol_img_ref, u1, v1)
 
         if self.params.save_volume_as_3d:
             filename = os.path.join(self.root_dir, 'FinalVolume3D', 'FinalVolume.npy')
