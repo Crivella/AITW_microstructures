@@ -38,8 +38,12 @@ class BaseParams:
     extra_size: tuple[int, int, int] = (150, 200, 100)  # Extra size for the enlarged image
     slice_interest_space: int = 100  # We generate one slice every XXX slices to add random noise before interpolation.
 
+    apply_local_deform: bool = True  # Whether to apply local deformation
+    apply_global_deform: bool = True  # Whether to apply global deformation
+
     save_slice: list[int] = 1  # List of slices (Z-index) to save (NOTE: inputfile is 1-indexed)
-    # save_volume_as_3d: bool = True
+    save_volume_as_3d: bool = True
+    save_global_dist: bool = True
     # write_local_deform_data: bool = True
     # write_global_deform_data: bool = False
 
@@ -72,6 +76,7 @@ class BaseParams:
         'isExistVessel': 'is_exist_vessel',
         'isExistRayCell': 'is_exist_ray_cell',
         'cellWallThick': 'cell_wall_thick',
+        'writeGlobalDeformData': 'save_global_dist',
     }
 
     def __post_init__(self):

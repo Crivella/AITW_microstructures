@@ -12,7 +12,6 @@ from scipy.interpolate import CubicSpline, RegularGridInterpolator, griddata
 from . import distortion as dist
 from . import ray_cells as rcl
 from .clocks import Clock
-# from .distortion import get_distortion_grid, local_distort
 from .fit_elipse import fit_elipse, fit_ellipse_6pt
 from .loggers import add_file_logger, get_logger, set_console_level
 from .params import BaseParams
@@ -643,8 +642,6 @@ class WoodMicrostructure(Clock, ABC):
 
         u = np.zeros((sie_x, sie_y), dtype=float)
         v = np.zeros_like(u, dtype=float)
-        # u1 = np.zeros_like(u, dtype=float)
-        # v1 = np.zeros_like(u, dtype=float)
 
         lx = (gx - 1) // 2
         ly = (gy - 1) // 2
@@ -888,7 +885,7 @@ class WoodMicrostructure(Clock, ABC):
             self,
             x_grid: npt.NDArray, y_grid: npt.NDArray, z_grid: npt.NDArray,
             u1: npt.NDArray, v1: npt.NDArray
-        ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+        ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
         """Get the interpolation grid for global deformation"""
         pass
 
@@ -904,19 +901,29 @@ class WoodMicrostructure(Clock, ABC):
         self.logger.info('=' * 80)
         self.logger.info('Global deformation...')
 
-        sie_x, sie_y, sie_z = self.params.size_im_enlarge
+        sie_x, sie_y, _ = self.params.size_im_enlarge
 
         x_lin = np.arange(sie_x)
         y_lin = np.arange(sie_y)
 
-        self.logger.info(f'{sie_x = }, {sie_y = }, {sie_z = }')
-        self.logger.info(f'slice_interest: {self.slice_interest}')
+        # self.logger.info(f'{sie_x = }, {sie_y = }, {sie_z = }')
+        # self.logger.info(f'slice_interest: {self.slice_interest}')
         for slice_start, slice_end in zip(self.slice_interest[:-1], self.slice_interest[1:]):
             self.logger.debug(f'Global distortion slice {slice_start} to {slice_end}...')
 
             x_grid, y_grid, z_grid = np.mgrid[0:sie_x, 0:sie_y, slice_start:slice_end]
 
-            x_interp, y_interp, z_interp = self._get_global_interp_grid(x_grid, y_grid, z_grid, u1, v1)
+            x_interp, y_interp, z_interp, u_all_z, v_all_z = self._get_global_interp_grid(
+                x_grid, y_grid, z_grid, u1, v1
+            )
+
+            if self.params.save_global_dist:
+                for slice_idx in range(slice_start, slice_end):
+                    self.save_global_distortion(
+                        u_all_z[..., slice_idx - slice_start],
+                        v_all_z[..., slice_idx - slice_start],
+                        slice_idx
+                    )
 
             # Vq       = uint8(interpn(x_grid,y_grid,z_grid,volImgLocalDistSub,...
             # x_interp(:),y_interp(:),z_interp(:),'linear'));
@@ -929,13 +936,7 @@ class WoodMicrostructure(Clock, ABC):
                 bounds_error=False,
                 fill_value=255
             )
-            vol_img_temp = interp(
-                np.column_stack(
-                    (x_interp.flatten(), y_interp.flatten(), z_interp.flatten())
-                )
-            ).reshape((sie_x, sie_y, slice_end - slice_start))
-
-            vol_img_ref[..., slice_start:slice_end] = vol_img_temp
+            vol_img_ref[..., slice_start:slice_end] = interp(np.stack((x_interp, y_interp, z_interp), axis=-1))
 
             dirname = 'GlobalDistVolume'
             for slice_idx in range(slice_start, slice_end):
@@ -947,25 +948,20 @@ class WoodMicrostructure(Clock, ABC):
 
         vol_sx, vol_sy, vol_sz = self.params.size_volume
 
-        dirname = 'FinalVolumeSlice'
-        for slice_idx in range(extra_sz_mid, extra_sz_mid + vol_sz):
-            filename = os.path.join(self.root_dir, dirname, f'volImgRef_{slice_idx - extra_sz_mid + 1:05d}.tiff')
-            self.save_2d_img(
-                vol_img_ref[
-                    extra_sx_mid:extra_sx_mid + vol_sx,
-                    extra_sy_mid:extra_sy_mid + vol_sy,
-                    slice_idx
-                ],
-                filename
-            )
-
-        return vol_img_ref[
+        final_volume = vol_img_ref[
             extra_sx_mid:extra_sx_mid + vol_sx,
             extra_sy_mid:extra_sy_mid + vol_sy,
             extra_sz_mid:extra_sz_mid + vol_sz
         ]
 
-    @Clock.register('Disk IO')
+        dirname = 'FinalVolumeSlice'
+        for idx in range(final_volume.shape[2]):
+            filename = os.path.join(self.root_dir, dirname, f'volImgRef_{idx + 1:05d}.tiff')
+            self.save_2d_img(final_volume[:,:,idx], filename)
+
+        return final_volume
+
+    @Clock.register('I/O')
     def create_dirs(self):
         """Ensure the output directories are created"""
         for dir_name in ['volImgBackBone', 'LocalDistVolume', 'LocalDistVolumeDispU', 'LocalDistVolumeDispV']:
@@ -973,8 +969,8 @@ class WoodMicrostructure(Clock, ABC):
 
     def save_slices(self, vol_img_ref: npt.NDArray, dirname: str):
         """Save the requested slice of the generated volume image"""
-        self.logger.debug('vol_img_ref.shape: %s', vol_img_ref.shape)
-        self.logger.debug('min/max: %f %f', np.min(vol_img_ref), np.max(vol_img_ref))
+        # self.logger.debug('vol_img_ref.shape: %s', vol_img_ref.shape)
+        # self.logger.debug('min/max: %f %f', np.min(vol_img_ref), np.max(vol_img_ref))
         for i,slice_idx in enumerate(self.params.save_slice):
             filename = os.path.join(self.root_dir, dirname, f'volImgRef_{slice_idx+1:05d}.tiff')
 
@@ -983,24 +979,54 @@ class WoodMicrostructure(Clock, ABC):
             self.save_2d_img(vol_img_ref[:, :, i], filename, self.show_img)
 
     @staticmethod
-    @Clock.register('Disk IO')
-    def save_2d_img(data: npt.NDArray, filename: str, show: bool = False):
-        """Save 2D data to a TIFF file"""
+    def ensure_dir(filename: str):
+        """Ensure the directory exists"""
         dirname = os.path.dirname(filename)
         os.makedirs(dirname, exist_ok=True)
+
+    @staticmethod
+    @Clock.register('I/O')
+    @Clock.register('I/O:image')
+    def save_2d_img(data: npt.NDArray, filename: str, show: bool = False):
+        """Save 2D data to a TIFF file"""
+        WoodMicrostructure.ensure_dir(filename)
+
         data[np.isnan(data)] = 255
         img = Image.fromarray(data.astype(np.uint8), mode='L')
         if show:
             img.show()
         img.save(filename)
 
-    @Clock.register('Disk IO')
-    def save_distortion(self, u: npt.NDArray, v: npt.NDArray, slice_idx: int):
+    @staticmethod
+    @Clock.register('I/O')
+    @Clock.register('I/O:image')
+    def save_3d_img(data: npt.NDArray, filename: str):
+        """Save 3D data to a NIfTI file"""
+        WoodMicrostructure.ensure_dir(filename)
+        data[np.isnan(data)] = 255
+        np.save(filename, data)
+
+    @Clock.register('I/O')
+    @Clock.register('I/O:csv')
+    def save_local_distortion(self, u: npt.NDArray, v: npt.NDArray, slice_idx: int):
         """Save the distortion fields"""
         u_name = os.path.join(self.root_dir, 'LocalDistVolumeDispU', f'u_volImgRef_{slice_idx+1:05d}.csv')
         v_name = os.path.join(self.root_dir, 'LocalDistVolumeDispV', f'v_volImgRef_{slice_idx+1:05d}.csv')
-        np.savetxt(u_name, np.round(u, decimals=4), delimiter=',')
-        np.savetxt(v_name, np.round(v, decimals=4), delimiter=',')
+        self.ensure_dir(u_name)
+        self.ensure_dir(v_name)
+        np.savetxt(u_name, np.round(u, decimals=4), delimiter=',', fmt='%0.4f')
+        np.savetxt(v_name, np.round(v, decimals=4), delimiter=',', fmt='%0.4f')
+
+    @Clock.register('I/O')
+    @Clock.register('I/O:csv')
+    def save_global_distortion(self, u: npt.NDArray, v: npt.NDArray, slice_idx: int):
+        """Save the distortion fields"""
+        u_name = os.path.join(self.root_dir, 'GlobalDistVolumeDispU', f'u_volImgRef_{slice_idx+1:05d}.csv')
+        v_name = os.path.join(self.root_dir, 'GlobalDistVolumeDispV', f'v_volImgRef_{slice_idx+1:05d}.csv')
+        self.ensure_dir(u_name)
+        self.ensure_dir(v_name)
+        np.savetxt(u_name, np.round(u, decimals=4), delimiter=',', fmt='%0.4f')
+        np.savetxt(v_name, np.round(v, decimals=4), delimiter=',', fmt='%0.4f')
 
     def _generate(self):
         """Generate ray cells"""
@@ -1056,9 +1082,7 @@ class WoodMicrostructure(Clock, ABC):
         # Save the generated volume
         self.save_slices(vol_img_ref, 'volImgBackBone')
 
-        # TODO: u1 and v1 are in a commented part of the code. Prob used in original code?
         u, v, u1, v1 = self.generate_deformation(ray_cell_x_ind, indx_skip_all, indx_vessel_cen)
-        # u, v = self.generate_deformation(ray_cell_x_ind, indx_skip_all, indx_vessel_cen)
         self.logger.debug('u.shape: %s  min/max: %s %s', u.shape, u.min(), u.max())
         self.logger.debug('v.shape: %s  min/max: %s %s', v.shape, v.min(), v.max())
 
@@ -1069,6 +1093,7 @@ class WoodMicrostructure(Clock, ABC):
             self.logger.debug('v.shape: %s  min/max: %s %s', v.shape, v.min(), v.max())
 
         if compress_all_valid_sub.size:
+            self.logger.info('Applying compression distortion to simulate late/earyl wood...')
             u += compress_all_valid_sub.reshape(-1, 1)
 
         self.logger.info('=' * 80)
@@ -1078,7 +1103,7 @@ class WoodMicrostructure(Clock, ABC):
                 v_slice = v[..., i]
             else:
                 v_slice = v
-            self.save_distortion(u, v_slice, slice_idx)
+            self.save_local_distortion(u, v_slice, slice_idx)
 
             self.logger.info(f'Applying deformation... slice {slice_idx} ({i+1}/{len(self.params.save_slice)})')
             img_interp = self.apply_deformation(vol_img_ref[..., i], u, v_slice)
@@ -1086,14 +1111,12 @@ class WoodMicrostructure(Clock, ABC):
             filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
             self.save_2d_img(img_interp, filename, self.show_img)
 
-        vol_img_ref = self.global_deformation(vol_img_ref, u1, v1)
+        if self.params.apply_global_deform:
+            vol_img_ref = self.global_deformation(vol_img_ref, u1, v1)
 
-        if self.params.all_slices:
-            dirname = os.path.join(self.root_dir, 'FinalVolume3D')
-            filename = os.path.join(dirname, 'FinalVolume.npy')
-            os.makedirs(dirname, exist_ok=True)
-
-            np.save(filename, vol_img_ref)
+        if self.params.save_volume_as_3d:
+            filename = os.path.join(self.root_dir, 'FinalVolume3D', 'FinalVolume.npy')
+            self.save_3d_img(vol_img_ref, filename)
 
     def report(self):
         """Final report for the generation"""

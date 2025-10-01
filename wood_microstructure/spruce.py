@@ -254,15 +254,15 @@ class SpruceMicrostructure(WoodMicrostructure):
         v_all_z = (
             (x_grid - sie_x * 2 / 5)**3 / 1e7 / 2 +
             (y_grid - sie_y / 2) * (z_grid - sie_z / 2) / (10**4) / 5
-        )
+        ) + u1[..., np.newaxis]
         # u_allz   = (y_grid-sizeImEnlarge(1)/3).^2/1e4/3+(x_grid-sizeImEnlarge(2)/3).*(z_grid-sizeImEnlarge(3)/3)/(10^4)/4;
         u_all_z = (
             (y_grid - sie_x / 3)**2 / 1e4 / 3 +
             (x_grid - sie_y / 3) * (z_grid - sie_z / 3) / (10**4) / 4
         )
 
-        x_interp = x_grid - u_all_z - u1[..., np.newaxis]
+        x_interp = x_grid - u_all_z
         y_interp = y_grid - v_all_z
         z_interp = z_grid
 
-        return x_interp, y_interp, z_interp
+        return x_interp, y_interp, z_interp, u_all_z, v_all_z
