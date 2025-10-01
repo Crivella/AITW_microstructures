@@ -41,7 +41,7 @@ class BaseParams:
     apply_local_deform: bool = True  # Whether to apply local deformation
     apply_global_deform: bool = True  # Whether to apply global deformation
 
-    save_slice: list[int] = 1  # List of slices (Z-index) to save (NOTE: inputfile is 1-indexed)
+    save_slice: list[int] | str = 'all'  # List of slices (Z-index) to save (NOTE: inputfile is 1-indexed)
     save_volume_as_3d: bool = True
     save_local_dist: bool = True
     save_global_dist: bool = True
