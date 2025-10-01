@@ -43,6 +43,7 @@ class BaseParams:
 
     save_slice: list[int] | str = 'all'  # List of slices (Z-index) to save (NOTE: inputfile is 1-indexed)
     save_volume_as_3d: bool = True
+    save_volume_format: str = 'nrrd'
     save_local_dist: bool = True
     save_global_dist: bool = True
     # write_local_deform_data: bool = True
