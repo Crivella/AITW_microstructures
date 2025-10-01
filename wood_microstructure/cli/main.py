@@ -27,11 +27,6 @@ else:
 def wood_microstructure():
     pass
 
-# @wood_microstructure.group()
-# def generate():
-#     """Generate wood microstructure"""
-#     pass
-
 @wood_microstructure.group()
 def postproc():
     """Utility functions"""

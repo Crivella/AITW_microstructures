@@ -17,39 +17,6 @@ wood_type_map: dict[str, WoodMicrostructure] = {
     'birch': BirchMicrostructure,
 }
 
-
-# @generate.command()
-# @click.argument('json_file', required=True, type=click.Path(exists=True))
-# @click.option('--output_dir', type=click.Path(), help='Output directory')
-# @click.option('-v', '--verbose', help='Verbose output', count=True)
-# # @click.option('--log_file', type=click.Path(), help='Log file name')
-# @click.option('--max-parallel', type=int, default=1, help='Max parallel processeses')
-# def spruce(json_file, output_dir, verbose, max_parallel):
-#     """Generate spruce microstructure"""
-#     if json_file is None:
-#         raise ValueError('JSON file is required')
-
-#     loglevel = verbose_map.get(verbose, logging.DEBUG)
-
-#     with open(json_file, 'r') as f:
-#         data = json.load(f)
-#     if isinstance(data, dict):
-#         data = [data]
-
-#     args = [(d, output_dir, loglevel) for d in data]
-
-#     with mp.Pool(max_parallel) as pool:
-#         pool.starmap(SpruceMicrostructure.run_from_dict, args)
-
-#     click.echo(f"Birch microstructure generated and saved to `{output_dir or 'current directory'}`")
-
-# @generate.command()
-# @click.argument('json_file', required=True, type=click.Path(exists=True))
-# @click.option('--output_dir', type=click.Path(), help='Output directory')
-# @click.option('-v', '--verbose', help='Verbose output', count=True)
-# # @click.option('--log_file', type=click.Path(), help='Log file name')
-# @click.option('--max-parallel', type=int, default=1, help='Max parallel processeses')
-
 @wood_microstructure.command()
 @click.argument('wood_type', required=True, type=click.Choice(['spruce', 'birch'], case_sensitive=False))
 @click.argument('json_file', required=True, type=click.Path(exists=True))
