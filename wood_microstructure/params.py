@@ -41,7 +41,6 @@ class BaseParams:
     apply_local_deform: bool = True  # Whether to apply local deformation
     apply_global_deform: bool = True  # Whether to apply global deformation
 
-    save_slice: list[int] | str = 'all'  # List of slices (Z-index) to save (NOTE: inputfile is 1-indexed)
     save_volume_as_3d: bool = True
     save_volume_format: str = 'nrrd'
     save_local_dist: bool = True
@@ -59,7 +58,9 @@ class BaseParams:
     _y_vector: npt.NDArray = None
     _grid: tuple[npt.NDArray, npt.NDArray] = None
     _num_grid_nodes: int = None
-    save_slice_map: dict[int, int] = None
+
+    _save_slice: list[int] | str = None  # List of slices (Z-index) to save (NOTE: inputfile is 1-indexed)
+    _save_slice_map: dict[int, int] = None
 
     params_map = {
         'sizeVolume': 'size_volume',
@@ -82,26 +83,42 @@ class BaseParams:
         'writeLocalDeformData': 'save_local_dist',
     }
 
-    def __post_init__(self):
-        """Post-initialization"""
-        ss = self.save_slice
-        if isinstance(ss, str):
-            if ss == 'all':
+    post_set = ['save_slice']
+
+    @property
+    def save_slice(self):
+        """List of slices (Z-index) to save (NOTE: inputfile is 1-indexed)"""
+        if self._save_slice is None:
+            self.save_slice = 'all'  # Default to save all slices
+        return self._save_slice
+
+    @save_slice.setter
+    def save_slice(self, value: list[int] | str):
+        self._all_slices = False
+        if isinstance(value, str):
+            if value == 'all':
                 self._all_slices = True
-                ss = tuple(range(self.size_im_enlarge[2]))
+                value = tuple(range(self.size_im_enlarge[2]))
             else:
-                ss = (int(ss) - 1,)
-        elif isinstance(ss, int):
-            ss = (ss - 1,)
-        elif isinstance(ss, (tuple, list)):
-            ss = tuple(int(s) - 1 for s in ss)
-        self.save_slice = ss
-        self.save_slice_map = {s: i for i, s in enumerate(ss)}
+                value = (int(value) - 1,)
+        elif isinstance(value, int):
+            value = (value - 1,)
+        elif isinstance(value, (tuple, list)):
+            value = tuple(int(s) - 1 for s in value)
+
+        self._save_slice = value
 
     @property
     def all_slices(self):
         """Whether to save all slices"""
         return self._all_slices
+
+    @property
+    def save_slice_map(self):
+        """Map of saved slices"""
+        if self._save_slice_map is None:
+            self._save_slice_map = {s: i for i, s in enumerate(self.save_slice)}
+        return self._save_slice_map
 
     @property
     def size_im_enlarge(self):
@@ -151,6 +168,10 @@ class BaseParams:
     def to_json(self, json_file: str):
         """Save the parameters to a JSON file"""
         data = {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        if self.all_slices:
+            data['save_slice'] = 'all'
+        else:
+            data['save_slice'] = [s + 1 for s in self.save_slice]  # Convert to 1-indexed for saving
         with open(json_file, 'w') as f:
             json.dump(data, f, indent=4)
 
@@ -161,12 +182,9 @@ class BaseParams:
             data = json.load(f)
         res = []
         if isinstance(data, dict):
-            data = {cls.params_map.get(k, k): v for k, v in data.items()}
-            res = [cls(**data)]
+            res = [cls.from_dict(data)]
         elif isinstance(data, list):
-            for item in data:
-                item = {cls.params_map.get(k, k): v for k, v in item.items()}
-                res.append(cls(**item))
+            res = [cls.from_dict(item) for item in data]
         else:
             raise ValueError('Invalid data format in JSON file')
         return res
@@ -174,8 +192,15 @@ class BaseParams:
     @classmethod
     def from_dict(cls, data: dict) -> 'BaseParams':
         """Create an instance from a JSON file"""
+        post = {}
         data = {cls.params_map.get(k, k): v for k, v in data.items()}
-        return cls(**data)
+        for k in cls.post_set:
+            if k in data:
+                post[k] = data.pop(k)
+        res = cls(**data)
+        for k, v in post.items():
+            setattr(res, k, v)
+        return res
 
 @dataclass
 class BirchParams(BaseParams):
