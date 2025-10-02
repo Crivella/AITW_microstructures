@@ -545,11 +545,6 @@ class WoodMicrostructure(Clock, ABC):
                     y_interp2_c = CubicSpline(interp_x1, interp_y1)(dx) + 1.5
                     thick_interp_c = CubicSpline(interp_x0, interp_thick)(dx)
                 except ValueError:
-                    # TODO: check how matlab handles this
-                    # The spline interpolations as is now can generate an X/Y grid where 2 points can swap order
-                    # e.g. on x-coords the left points can get pushed right enough and the right-point left enough
-                    # for them to swap order causing successive spline interpolation to fail because the x-coords
-                    # are not monotonic
                     self.logger.warning('    WARNING: Spline interpolation failed')
                     continue
 
@@ -761,10 +756,6 @@ class WoodMicrostructure(Clock, ABC):
 
         ray_height = self.params.ray_height
         ray_size = self.params.cell_r - cell_thick / 2
-        # slice_idx = self.params.save_slice
-        # TODO: need to implement slice_idx with multiple indexes
-        # I think this was reused from some other code because when the output array
-        # is used it assumes it does not have a third dimension (or that it is always 1)
 
         cnt = defaultdict(int)
         for idx in idx_all.flatten():
@@ -798,15 +789,12 @@ class WoodMicrostructure(Clock, ABC):
                     idx = idx_all[k]
 
                     # self.logger.debug(f'  {idx=} {x_node_grid[:, idx].shape=} {y_node_grid[:, idx].shape=} {dx.shape=}')
-                    # # TODO: check here as this can fail for non monotonic x_node_grid[:, idx]
                     try:
                         y_node_grid_1 = CubicSpline(x_node_grid[:, idx], y_node_grid[:, idx])(dx)
                         y_node_grid_2 = CubicSpline(x_node_grid[:, idx + 2], y_node_grid[:, idx + 2])(dx)
                     except ValueError:
                         self.logger.warning('    WARNING: Spline interpolation failed')
                         continue
-                    # y_node_grid_1 = CubicSpline(x_node_grid[:, idx], y_node_grid[:, idx])(dx)
-                    # y_node_grid_2 = CubicSpline(x_node_grid[:, idx + 2], y_node_grid[:, idx + 2])(dx)
 
                     v_node_grid_1 = dist_v[dx, np.round(y_node_grid_1).astype(int)]
                     v_node_grid_2 = dist_v[dx, np.round(y_node_grid_2).astype(int)]
@@ -872,7 +860,7 @@ class WoodMicrostructure(Clock, ABC):
                         v1_all = v1
                         v2_all = v2
 
-                # TODO: this is tied to the previous todo with the try/except on the splines
+                # This is tied to the previous todo with the try/except on the splines
                 if v1_all is None or v2_all is None:
                     self.logger.debug('    No valid deformation for this ray cell')
                     continue

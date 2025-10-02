@@ -90,8 +90,6 @@ def filter_edge(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
             all_idx.append(i)
     return vessel_all[all_idx]
 
-# TODO: CHECK if vessels are not supposed to overlap, the number here might not be correct
-#       Fairly sure this behaves the same as the original code though
 def extend(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
     """The vessels are extended. Some vessels are extended to be double-vessel cluster, some are
     triple-vessel clusters.
@@ -124,7 +122,6 @@ def extend(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
                     temp = [vessel[0] + 6, vessel[1]]
         else:
             if vessel[0] + 12 < lx and vessel[1] + 10 < ly:
-                # TODO:this should probably be a +6 or +7 if the vessels cant overlap
                 temp0 = [vessel[0] + 5 + sign1, vessel[1]]
                 if possibility < 0.3:
                     temp = np.vstack((
@@ -134,7 +131,6 @@ def extend(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
                 else:
                     temp = np.vstack((
                         temp0,
-                        # TODO:this should probably be a +6 or +7 if the vessels cant overlap
                         [temp0[0] + 5 + sign2, temp0[1]]
                     ))
         vessel_all_extend = np.vstack((vessel_all_extend, vessel, temp))
