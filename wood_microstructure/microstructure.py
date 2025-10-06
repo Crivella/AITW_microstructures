@@ -9,6 +9,7 @@ import numpy as np
 import numpy.typing as npt
 from PIL import Image
 from scipy.interpolate import CubicSpline, RegularGridInterpolator, griddata
+import torch
 
 from . import distortion as dist
 from . import ray_cells as rcl
@@ -16,7 +17,7 @@ from .clocks import Clock
 from .fit_elipse import fit_elipse, fit_ellipse_6pt
 from .loggers import add_file_logger, get_logger, set_console_level
 from .params import BaseParams
-
+from .surrogate import U_Net
 
 class WoodMicrostructure(Clock, ABC):
     """Base class for wood microstructure generation"""
@@ -106,6 +107,12 @@ class WoodMicrostructure(Clock, ABC):
 
         save_param_file = os.path.join(self.root_dir, 'params.json')
         self.params.to_json(save_param_file)
+
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+        self.surrogate = U_Net()
+        self.weights_file = os.path.join(self.outdir, 'weights_noPretrain_fold4.pt')
+        self.surrogate.load_state_dict(torch.load(self.weights_file, map_location=self.device))
 
     def set_console_level(self, level: int):
         """Set the console logging level"""
@@ -896,6 +903,16 @@ class WoodMicrostructure(Clock, ABC):
 
         return img_interp
 
+    def surrogate_local_deformation(self, slice_ref: npt.NDArray, u: npt.NDArray, v: npt.NDArray, model, device) -> npt.NDArray:
+        """Apply the deformation using the surrogate model"""
+
+        img_interp = model(torch.from_numpy(slice_ref/255.0).float().unsqueeze(0).unsqueeze(0).to(device),torch.from_numpy(u).float().unsqueeze(0).unsqueeze(0).to(device),torch.from_numpy(v).float().unsqueeze(0).unsqueeze(0).to(device))
+        img_interp = 255.0 * img_interp.squeeze().detach().cpu().numpy()
+
+        slice_ref[:,:] = img_interp
+
+        return img_interp
+
     @abstractmethod
     def _get_global_interp_grid(
             self,
@@ -1141,7 +1158,8 @@ class WoodMicrostructure(Clock, ABC):
                 self.save_local_distortion(u, v_slice, slice_idx)
 
             self.logger.info(f'Applying deformation... slice {slice_idx} ({i+1}/{len(self.params.save_slice)})')
-            img_interp = self.apply_local_deformation(vol_img_ref[..., i], u, v_slice)
+            #img_interp = self.apply_local_deformation(vol_img_ref[..., i], u, v_slice)
+            img_interp = self.surrogate_local_deformation(vol_img_ref[..., i], u, v_slice, self.surrogate, self.device)
 
             filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
             self.save_2d_img(img_interp, filename, self.show_img)
