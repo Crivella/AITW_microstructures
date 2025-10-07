@@ -1,10 +1,7 @@
 import numpy as np
 import numpy.typing as npt
 
-from .clocks import Clock
 
-
-@Clock('get_distortion_grid')
 def get_distortion_grid(
         x_center: int, y_center: int, x_size: int, y_size: int, cutoff: int
     ) -> tuple[npt.NDArray, npt.NDArray]:
@@ -16,7 +13,6 @@ def get_distortion_grid(
 
     return x_grid, y_grid
 
-@Clock('local_distortion')
 def local_distort(
         x_grid: npt.NDArray, y_grid: npt.NDArray,
         x0: npt.NDArray, y0: npt.NDArray,

@@ -3,13 +3,17 @@ import numpy as np
 import numpy.typing as npt
 from scipy.interpolate import CubicSpline
 
+from . import distortion as dist
 from . import ray_cells as rcl
 from . import vessels as ves
 from .clocks import Clock
 from .microstructure import WoodMicrostructure
+from .params import SpruceParams
 
 
 class SpruceMicrostructure(WoodMicrostructure):
+    ParamsClass = SpruceParams
+
     save_prefix = 'SaveSpruce'
     local_distortion_cutoff = 200
     ray_height_mod = 5
@@ -60,11 +64,10 @@ class SpruceMicrostructure(WoodMicrostructure):
         """Specify the location of grid nodes and the thickness (with disturbance)"""
         gx, gy = self.params.x_grid.shape
         gz = self.params.size_im_enlarge[2]
-        ds = self.params.slice_interest_space
 
         cwt = self.params.cell_wall_thick
 
-        slice_interest = np.arange(0, gz, ds)
+        slice_interest = self.slice_interest
         l = len(slice_interest)
 
         x_grid_interp = np.random.rand(gx, gy, l) * 3 - 1.5 + self.params.x_grid[..., np.newaxis]
@@ -92,6 +95,7 @@ class SpruceMicrostructure(WoodMicrostructure):
 
         return x_grid_all, y_grid_all, thickness_all_ray, thickness_all_fiber
 
+    @Clock.register('rcl:indexes')
     def get_ray_cell_indexes(self) -> npt.NDArray:
         """Get ray cell indexes"""
         ly = len(self.params.y_vector)
@@ -100,7 +104,7 @@ class SpruceMicrostructure(WoodMicrostructure):
             ray_cell_x_ind_all = rcl.get_x_indexes(ly, 8, np.round((ly - 15) / 10), 6)
         return ray_cell_x_ind_all.astype(int)
 
-    @Clock('vessels')
+    @Clock.register('vessels')
     def generate_vessel_indexes(self, ray_cell_x_ind_all: npt.NDArray = None):
         """Get vessels"""
         self.logger.info('=' * 80)
@@ -214,3 +218,55 @@ class SpruceMicrostructure(WoodMicrostructure):
         s_grid = np.ones((lx, ly))
 
         return s_grid
+
+    def _get_u1_v1(self, xc_grid, yc_grid, is_close_to_ray_far, sie_x, sie_y):
+        """Get the local distortion map u1, v1"""
+        u1 = np.zeros((sie_x, sie_y), dtype=float)
+        v1 = np.zeros((sie_x, sie_y), dtype=float)
+
+        for xc, yc, cf in zip(xc_grid.flatten(), yc_grid.flatten(), is_close_to_ray_far.flatten()):
+            if np.random.rand() >= 1 / 15:
+                continue
+
+            xp, yp = dist.get_distortion_grid(
+                xc, yc, sie_x, sie_y,
+                # This deformation is much longer range so it needs to be applied to the entire area
+                max(sie_x, sie_y)
+            )
+
+            p = 0.5 if cf else 1.5
+            k = [0.04, 0.03, 1 + np.random.rand(), p * (1 + np.random.rand())]
+            local_dist = dist.local_distort(xp, yp, xc, yc, k)
+            u1[xp, yp] += local_dist
+
+            p = 0.4 if cf else 1.0
+            k = [0.04, 0.03, 1 + np.random.rand(), p * (1 + np.random.rand())]
+            local_dist = dist.local_distort(yp, xp, yc, xc, k)
+            v1[xp, yp] += np.sign(np.random.randn()) * local_dist
+
+        return u1, v1
+
+    def _get_global_interp_grid(
+            self,
+            x_grid: npt.NDArray, y_grid: npt.NDArray, z_grid: npt.NDArray,
+            u1: npt.NDArray, v1: npt.NDArray
+        ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+        """Get the interpolation grid for global deformation"""
+        sie_x, sie_y, sie_z = self.params.size_im_enlarge
+
+        # v_allz   = (x_grid-sizeImEnlarge(1)*2/5).^3/1e7/2+(y_grid-sizeImEnlarge(2)/2).*(z_grid-sizeImEnlarge(3)/2)/(10^4)/5;
+        v_all_z = (
+            (x_grid - sie_x * 2 / 5)**3 / 1e7 / 2 +
+            (y_grid - sie_y / 2) * (z_grid - sie_z / 2) / 1e4 / 5
+        )
+        # u_allz   = (y_grid-sizeImEnlarge(1)/3).^2/1e4/3+(x_grid-sizeImEnlarge(2)/3).*(z_grid-sizeImEnlarge(3)/3)/(10^4)/4;
+        u_all_z = (
+            (y_grid - sie_x / 3)**2 / 1e4 / 3 +
+            (x_grid - sie_y / 3) * (z_grid - sie_z / 3) / 1e4 / 4
+        ) + u1[..., np.newaxis]
+
+        x_interp = x_grid - u_all_z
+        y_interp = y_grid - v_all_z
+        z_interp = z_grid
+
+        return x_interp, y_interp, z_interp, u_all_z, v_all_z

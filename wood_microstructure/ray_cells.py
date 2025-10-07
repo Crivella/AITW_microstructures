@@ -2,14 +2,7 @@
 import numpy as np
 import numpy.typing as npt
 
-from .clocks import Clock
 
-
-class RayCellSplineError(Exception):
-    """Exception raised when the spline interpolation fails."""
-
-@Clock('ray_cell')
-@Clock('rcl:indexes')
 def get_x_indexes(ly: int, trim: int, ray_space: float, random_width: float = 10) -> npt.NDArray:
     """Get the x indexes of the ray cells.
 
@@ -30,8 +23,6 @@ def get_x_indexes(ly: int, trim: int, ray_space: float, random_width: float = 10
 
     return indexes.astype(int)
 
-@Clock('ray_cell')
-@Clock('rcl:distribute')
 def distribute(
         sie_z: int, indexes: npt.NDArray, cell_num: float, cell_num_std: float, height: float,
         height_mod: int

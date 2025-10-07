@@ -1,6 +1,8 @@
 import numpy as np
 import numpy.typing as npt
 
+NP_VERSION = tuple(int(x) for x in np.__version__.split('.')[:2])
+
 
 def fit_elipse(point_coord: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]:
     """
@@ -23,7 +25,11 @@ def fit_elipse(point_coord: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray, npt.
         - k: y-coordinate of the center
     """
     A = np.concatenate((point_coord**2, point_coord), axis=-1)
-    b = np.ones(A.shape[-1])
+    if NP_VERSION >= (2, 0):
+        b = np.ones(A.shape[-1])
+    else:
+        shape = (*A.shape[:-2], A.shape[-1])
+        b = np.ones(shape)
 
     x = np.linalg.solve(A, b)
     x *= np.sign(x[..., 0])[..., np.newaxis]

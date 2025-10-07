@@ -1,68 +1,76 @@
 """Implement clock to time the execution of functions."""
 
 import time
+from collections import defaultdict
 from functools import wraps
-from typing import Dict
-
-clocks: Dict[str, 'Clock'] = {}
-
-from .loggers import get_logger
 
 
 class Clock():
-    def __new__(cls, name: str):
-        if name in clocks:
-            return clocks[name]
-        new_clock = super().__new__(cls)
-        new_clock.initialize(name)
-        clocks[name] = new_clock
-        return new_clock
+    """Class to time the execution of functions.
+    Usage:
+    class MyClass(Clock):
+        @Clock.register('my_function')
+        def my_function(self):
+            pass
+    """
+    CLOCK_MARKER = '__clock__'
 
-    def initialize(self, name: str):
-        self.logger = get_logger()
-        self.name = name
-        self.cumul = 0
-        self.cumul_local = 0
-        self.num_calls = 0
-        self.num_calls_local = 0
+    def __init__(self, *args, **kwargs):
+        self.clocks = {'total': defaultdict(int)}
+        super().__init__(*args, **kwargs)
 
-    def __call__(self, func):
-        if hasattr(func, 'clocked'):
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                start = time.time()
-                result = func(*args, **kwargs)
-                self.num_calls_local += 1
-                self.cumul_local += time.time() - start
-                return result
-        else:
-            @wraps(func)
-            def wrapper(*args, **kwargs):
-                start = time.time()
-                result = func(*args, **kwargs)
-                self.num_calls += 1
-                self.cumul += time.time() - start
-                return result
+    def __getattribute__(self, name):
+        res = super().__getattribute__(name)
+        if callable(res) and hasattr(res, Clock.CLOCK_MARKER) and not hasattr(res, '__wrapped__'):
+            clock_lst = getattr(res, Clock.CLOCK_MARKER, None)
+            if clock_lst is not None:
+                clock_dcts = []
+                for clock in clock_lst:
+                    ptr = self.clocks.setdefault(clock, defaultdict(int))
+                    clock_dcts.append(ptr)
+                total_clock = self.clocks['total']
+                @wraps(res)
+                def wrapped(*args, **kwargs):
+                    start = time.time()
+                    result = res(*args, **kwargs)
+                    delta = time.time() - start
+                    for ptr in clock_dcts:
+                        ptr['tot_time'] += delta
+                        ptr['num_calls'] += 1
 
-        wrapper.clocked = True
+                    total_clock['tot_time'] += delta
+                    total_clock['num_calls'] += 1
+                    return result
+                wrapped.__wrapped__ = res
+                return wrapped
+        return res
 
-        return wrapper
+    def report_clocks(self) -> str:
+        res = ['Time report:']
+        all_tot_time = self.clocks['total']['tot_time']
+        for name, clock in self.clocks.items():
+            num_calls = clock['num_calls']
 
-    def report(self):
-        num_calls = self.num_calls_local + self.num_calls
-        if num_calls == 0:
-            return
-        tot_time = self.cumul + self.cumul_local
-        avg_time = tot_time / num_calls * 1000
+            tot_time = clock['tot_time']
+            avg_time = (tot_time / num_calls * 1000) if num_calls > 0 else 0
 
-        self.logger.info(
-            f'{self.name:>20s}   ({num_calls:>7d} CALLs): {tot_time:>13.4f} s  ({avg_time:>10.1f} ms/CALL)'
-            )
+            frc_string = ''
+            if all_tot_time > 0:
+                frc_time = (tot_time / all_tot_time * 100)
+                frc_string = f'{frc_time:5.1f}% '
+
+            msg = f'{name:>20s}   ({num_calls:>7d} CALLs):{frc_string}{tot_time:>13.4f} s  ({avg_time:>10.1f} ms/CALL)'
+            res.append(msg)
+
+        return '\n'.join(res)
 
     @staticmethod
-    def report_all():
-        total = Clock('total')
-        for clock in clocks.values():
-            clock.report()
-            total.cumul += clock.cumul
-            total.num_calls += clock.num_calls
+    def register(name: str):
+        def decorator(func):
+            if not hasattr(func, Clock.CLOCK_MARKER):
+                setattr(func, Clock.CLOCK_MARKER, [])
+                func.__clock__ = []
+            ptr = getattr(func, Clock.CLOCK_MARKER)
+            ptr.insert(0, name)
+            return func
+        return decorator

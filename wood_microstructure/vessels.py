@@ -2,8 +2,6 @@
 import numpy as np
 import numpy.typing as npt
 
-from .clocks import Clock
-
 __all__ = [
     'generate_indexes',
     'filter_close',
@@ -12,7 +10,6 @@ __all__ = [
     'extend',
 ]
 
-@Clock('vessels')
 def generate_indexes(vessel_count1:int, vessel_count2:int, lx: int, ly: int) -> npt.NDArray:
     """Generate vessel indexes.
 
@@ -37,7 +34,6 @@ def generate_indexes(vessel_count1:int, vessel_count2:int, lx: int, ly: int) -> 
 
     return vessel_all.astype(int)
 
-@Clock('vessels')
 def filter_close(vessel_all: npt.NDArray) -> npt.NDArray:
     """Filter the vessel that are too close to the other vessels
 
@@ -60,7 +56,6 @@ def filter_close(vessel_all: npt.NDArray) -> npt.NDArray:
 
     return vessel_all[all_idx]
 
-@Clock('vessels')
 def filter_ray_close(vessel_all: npt.NDArray, ray_cell_x_ind_all: npt.NDArray) -> npt.NDArray:
     """Filter the vessel that are too close to the ray cells
 
@@ -78,7 +73,6 @@ def filter_ray_close(vessel_all: npt.NDArray, ray_cell_x_ind_all: npt.NDArray) -
             all_idx.append(i)
     return vessel_all[all_idx]
 
-@Clock('vessels')
 def filter_edge(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
     """Filter the vessels that are too close to the edge of the grid.
 
@@ -96,9 +90,6 @@ def filter_edge(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
             all_idx.append(i)
     return vessel_all[all_idx]
 
-# TODO: CHECK if vessels are not supposed to overlap, the number here might not be correct
-#       Fairly sure this behaves the same as the original code though
-@Clock('vessels')
 def extend(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
     """The vessels are extended. Some vessels are extended to be double-vessel cluster, some are
     triple-vessel clusters.
@@ -131,7 +122,6 @@ def extend(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
                     temp = [vessel[0] + 6, vessel[1]]
         else:
             if vessel[0] + 12 < lx and vessel[1] + 10 < ly:
-                # TODO:this should probably be a +6 or +7 if the vessels cant overlap
                 temp0 = [vessel[0] + 5 + sign1, vessel[1]]
                 if possibility < 0.3:
                     temp = np.vstack((
@@ -141,14 +131,12 @@ def extend(vessel_all: npt.NDArray, lx: int, ly: int) -> npt.NDArray:
                 else:
                     temp = np.vstack((
                         temp0,
-                        # TODO:this should probably be a +6 or +7 if the vessels cant overlap
                         [temp0[0] + 5 + sign2, temp0[1]]
                     ))
         vessel_all_extend = np.vstack((vessel_all_extend, vessel, temp))
 
     return vessel_all_extend
 
-@Clock('vessels')
 def get_grid_idx_in_vessel(vessel_all: npt.NDArray) -> npt.NDArray:
     """Get the the indexes of the grid nodes inside the vessels.
 
@@ -174,7 +162,6 @@ def get_grid_idx_in_vessel(vessel_all: npt.NDArray) -> npt.NDArray:
 
     return indexes
 
-@Clock('vessels')
 def get_grid_idx_edges(vessel_all: npt.NDArray) -> npt.NDArray:
     """Get the indexes of the grid nodes at the edges of the vessels.
 
