@@ -138,8 +138,10 @@ class WoodMicrostructure(Clock, ABC):
                 sys.exit(1)
             self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
             self.surrogate = U_Net()
+            self.surrogate.to(self.device)
             self.surrogate.load_state_dict(torch.load(weight_file, map_location=self.device))
             self.logger.info('Using surrogate model with weights from `%s`', weight_file)
+            self.logger.info('Using device: %s', self.device)
 
     def set_console_level(self, level: int):
         """Set the console logging level"""
