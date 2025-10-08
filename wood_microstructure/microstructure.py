@@ -3,11 +3,11 @@ import importlib
 import logging
 import os
 import sys
-# import threading
+import threading
+import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
-import multiprocess as mp
 import nrrd
 import numpy as np
 import numpy.typing as npt
@@ -83,7 +83,7 @@ class WoodMicrostructure(Clock, ABC):
             self,
             params: BaseParams, *args,
             outdir: str = None, show_img: bool = False,
-            max_parallel = 1,
+            num_parallel = 1,
             **kwargs
         ):
         super().__init__(*args, **kwargs)
@@ -118,9 +118,9 @@ class WoodMicrostructure(Clock, ABC):
         save_param_file = os.path.join(self.root_dir, 'params.json')
         self.params.to_json(save_param_file)
 
-        self.max_parallel = max_parallel
-        if max_parallel > 1:
-            self.logger.info('Using multiprocessing with %d processes', max_parallel)
+        self.num_parallel = num_parallel
+        if num_parallel > 1:
+            self.logger.info('Using multiprocessing with %d processes', num_parallel)
 
         self.device = None
         self.surrogate = None
@@ -943,11 +943,19 @@ class WoodMicrostructure(Clock, ABC):
             img_interp = np.clip(img_interp, 0, 255).astype(np.uint8)
             vol_img_ref[..., slice_idx] = img_interp
 
-        if self.max_parallel > 1:
-            # TODO: WIP this does not work as it saves to separate memory spaces
-            raise NotImplementedError('Multiprocessing not implemented yet')
-            with mp.Pool(self.max_parallel) as pool:
-                pool.map(_deform_slice, range(len(self.params.save_slice)))
+        if self.num_parallel > 1:
+            indexes = list(range(len(self.params.save_slice)))
+            threads = []
+            while indexes or threads:
+                while len(threads) < self.num_parallel and indexes:
+                    i = indexes.pop(0)
+                    thread = threading.Thread(target=_deform_slice, args=(i,))
+                    thread.start()
+                    threads.append(thread)
+                torm = [i for i,t in enumerate(threads) if not t.is_alive()][::-1]
+                for i in torm:
+                    threads.pop(i)
+                time.sleep(0.1)
         else:
             for i in range(len(self.params.save_slice)):
                 _deform_slice(i)
@@ -959,7 +967,7 @@ class WoodMicrostructure(Clock, ABC):
         ) -> npt.NDArray:
         """Apply the deformation using the surrogate model"""
 
-        if self.max_parallel == 1:
+        if self.num_parallel == 1:
             for i, slice_idx in enumerate(self.params.save_slice):
                 self.logger.info('[SURROGATE] Applying distortion for slice %d', slice_idx)
                 if self.params.is_exist_ray_cell:
@@ -977,7 +985,7 @@ class WoodMicrostructure(Clock, ABC):
                 vol_img_ref[..., i] = img_interp
         else:
             last = len(self.params.save_slice)
-            chunk_edges = list(range(0, last + 1, self.max_parallel))
+            chunk_edges = list(range(0, last + 1, self.num_parallel))
             if chunk_edges[-1] != last:
                 chunk_edges.append(last)
             for start, end in zip(chunk_edges[:-1], chunk_edges[1:]):
@@ -1287,10 +1295,10 @@ class WoodMicrostructure(Clock, ABC):
     def run_from_dict(
             cls,
             data: dict, output_dir: str = None, loglevel: int = logging.DEBUG,
-            max_parallel: int = 1
+            num_parallel: int = 1
         ) -> None:
         """Run the generator from a dictionary of parameters"""
         params = cls.ParamsClass.from_dict(data)
-        ms = cls(params, outdir=output_dir, max_parallel=max_parallel)
+        ms = cls(params, outdir=output_dir, num_parallel=num_parallel)
         ms.set_console_level(loglevel)
         ms.generate()
