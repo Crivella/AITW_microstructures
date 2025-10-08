@@ -1004,7 +1004,9 @@ class WoodMicrostructure(Clock, ABC):
                         np.transpose(v[..., start:end], axes=(2, 0, 1))
                     ).float().unsqueeze(1).to(self.device)
                 else:
-                    v_t = self.torch.from_numpy(v).float().unsqueeze(0).unsqueeze(0).to(self.device)
+                    v_t = self.torch.from_numpy(
+                        np.full((end - start, *v.shape), v)
+                    ).float().unsqueeze(1).to(self.device)
 
                 img_t = self.torch.from_numpy(
                     np.transpose(vol_img_ref[..., start:end], axes=(2, 0, 1)) / 255.0
