@@ -17,6 +17,7 @@ class Clock():
 
     def __init__(self, *args, **kwargs):
         self.clocks = {'total': defaultdict(int)}
+        self.clock_stack = defaultdict(int)
         super().__init__(*args, **kwargs)
 
     def __getattribute__(self, name):
@@ -31,6 +32,7 @@ class Clock():
                 total_clock = self.clocks['total']
                 @wraps(res)
                 def wrapped(*args, **kwargs):
+                    self.clock_stack[name] += 1
                     start = time.time()
                     result = res(*args, **kwargs)
                     delta = time.time() - start
@@ -38,8 +40,11 @@ class Clock():
                         ptr['tot_time'] += delta
                         ptr['num_calls'] += 1
 
-                    total_clock['tot_time'] += delta
-                    total_clock['num_calls'] += 1
+
+                    self.clock_stack[name] -= 1
+                    if sum(self.clock_stack.values()) == 0:
+                        total_clock['tot_time'] += delta
+                        total_clock['num_calls'] += 1
                     return result
                 wrapped.__wrapped__ = res
                 return wrapped
@@ -69,7 +74,6 @@ class Clock():
         def decorator(func):
             if not hasattr(func, Clock.CLOCK_MARKER):
                 setattr(func, Clock.CLOCK_MARKER, [])
-                func.__clock__ = []
             ptr = getattr(func, Clock.CLOCK_MARKER)
             ptr.insert(0, name)
             return func
