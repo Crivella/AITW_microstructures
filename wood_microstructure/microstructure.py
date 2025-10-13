@@ -119,8 +119,15 @@ class WoodMicrostructure(Clock, ABC):
         self.params.to_json(save_param_file)
 
         self.num_parallel = num_parallel
+        self.logger.debug('num_parallel: %d', num_parallel)
         if num_parallel > 1:
-            self.logger.info('Using multiprocessing with %d processes', num_parallel)
+            if self.params.surrogate:
+                msg = 'Using batching with %d slices per inference'
+            else:
+                msg = 'Using multiprocessing with %d processes'
+            self.logger.info(msg, num_parallel)
+        else:
+            self.logger.info('Running in single process mode')
 
         self.device = None
         self.surrogate = None
@@ -172,8 +179,8 @@ class WoodMicrostructure(Clock, ABC):
             ds = self.params.slice_interest_space
 
             slice_interest = np.arange(0, gz, ds)
-            if slice_interest[-1] != gz - 1:
-                slice_interest = np.append(slice_interest, gz - 1)
+            if slice_interest[-1] != gz:
+                slice_interest = np.append(slice_interest, gz)
             self._slice_interest = slice_interest
         return self._slice_interest
 
@@ -1065,9 +1072,6 @@ class WoodMicrostructure(Clock, ABC):
                         slice_idx
                     )
 
-            # Vq       = uint8(interpn(x_grid,y_grid,z_grid,volImgLocalDistSub,...
-            # x_interp(:),y_interp(:),z_interp(:),'linear'));
-            # VolImg_Temp   = reshape(Vq,[sizeImEnlarge(1),sizeImEnlarge(2),length(indxZ)]);
             self.logger.info(f'Interpolating... {x_grid.shape}')
             interp = RegularGridInterpolator(
                 (x_lin, y_lin, np.arange(slice_start, slice_end)),
