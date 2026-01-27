@@ -48,6 +48,8 @@ class BaseParams:
     # write_local_deform_data: bool = True
     # write_global_deform_data: bool = False
 
+    surrogate: bool = False  # Whether to use surrogate model for local deformation
+
     # Not user defined
     neighbor_local = np.array([[-1, 0, 1, 0], [0, -1, 0, 1]], dtype=int)  # d-indices of the neighbor grid nodes
 

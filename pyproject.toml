@@ -27,12 +27,16 @@ dependencies = [
     "trogon", "click",
     "rich", "rich-click",
     "pynrrd",
+    # "multiprocess",
 ]
 
 # [project.urls]
 # Source = ""
 
 [project.optional-dependencies]
+surrogate = [
+    "torch",
+]
 utils = [
     "matplotlib",
     "mayavi",

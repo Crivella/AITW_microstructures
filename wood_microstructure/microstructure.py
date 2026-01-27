@@ -1,6 +1,10 @@
 """Ray cells"""
+import importlib
 import logging
 import os
+import sys
+import threading
+import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
 
@@ -74,7 +78,13 @@ class WoodMicrostructure(Clock, ABC):
         """Get the indexes of the vessel centers"""
         pass
 
-    def __init__(self, params: BaseParams, *args, outdir: str = None, show_img: bool = False, **kwargs):
+    def __init__(
+            self,
+            params: BaseParams, *args,
+            outdir: str = None, show_img: bool = False,
+            num_parallel = 1,
+            **kwargs
+        ):
         super().__init__(*args, **kwargs)
 
         self._slice_interest = None
@@ -107,6 +117,39 @@ class WoodMicrostructure(Clock, ABC):
         save_param_file = os.path.join(self.root_dir, 'params.json')
         self.params.to_json(save_param_file)
 
+        self.num_parallel = num_parallel
+        self.logger.debug('num_parallel: %d', num_parallel)
+        if num_parallel > 1:
+            if self.params.surrogate:
+                msg = 'Using batching with %d slices per inference'
+            else:
+                msg = 'Using multiprocessing with %d processes'
+            self.logger.info(msg, num_parallel)
+        else:
+            self.logger.info('Running in single process mode')
+
+        self.device = None
+        self.surrogate = None
+        if self.params.surrogate:
+            try:
+                self.torch = torch = importlib.import_module('torch')
+            except ImportError as e:
+                self.logger.error('Install the package with the [surrogate] extra to use the surrogate model')
+                sys.exit(1)
+            from .surrogate import U_Net
+            cls_name = self.__class__.__name__
+            dir_name = os.path.dirname(__file__)
+            weight_file = os.path.join(dir_name, f'{cls_name}.pt')
+            if not os.path.exists(weight_file):
+                self.logger.error(f'Surrogate model weights {weight_file} not avialable for `{cls_name}`')
+                sys.exit(1)
+            self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+            self.surrogate = U_Net()
+            self.surrogate.to(self.device)
+            self.surrogate.load_state_dict(torch.load(weight_file, map_location=self.device))
+            self.logger.info('Using surrogate model with weights from `%s`', weight_file)
+            self.logger.info('Using device: %s', self.device)
+
     def set_console_level(self, level: int):
         """Set the console logging level"""
         set_console_level(self.logger, level)
@@ -136,8 +179,8 @@ class WoodMicrostructure(Clock, ABC):
             ds = self.params.slice_interest_space
 
             slice_interest = np.arange(0, gz, ds)
-            if slice_interest[-1] != gz - 1:
-                slice_interest = np.append(slice_interest, gz - 1)
+            if slice_interest[-1] != gz:
+                slice_interest = np.append(slice_interest, gz)
             self._slice_interest = slice_interest
         return self._slice_interest
 
@@ -873,26 +916,118 @@ class WoodMicrostructure(Clock, ABC):
         return v_all
 
     @Clock.register('deformation')
-    @Clock.register('deform:apply')
-    def apply_local_deformation(self, slice_ref: npt.NDArray, u: npt.NDArray, v: npt.NDArray) -> npt.NDArray:
+    @Clock.register('deform:local')
+    def apply_local_deformation(
+            self, vol_img_ref: npt.NDArray, u: npt.NDArray, v: npt.NDArray
+        ) -> npt.NDArray:
+        """Apply local deformation to the volume image"""
+        self.logger.info('=' * 80)
+        self.logger.info('Local deformation...')
+
+        if self.surrogate is None or self.device is None:
+            self._apply_local_deformation(vol_img_ref, u, v)
+        else:
+            self._apply_local_deformation_surrogate(vol_img_ref, u, v)
+
+        return vol_img_ref
+
+    def _apply_local_deformation(self, vol_img_ref: npt.NDArray, u: npt.NDArray, v: npt.NDArray) -> npt.NDArray:
         """Apply the deformation to the volume image"""
         sie_x, sie_y, _ = self.params.size_im_enlarge
         x_grid, y_grid = np.mgrid[0:sie_x, 0:sie_y]
         x_interp = x_grid + u
-        y_interp = y_grid + v
 
-        Vq = griddata(
-            (x_interp.flatten(), y_interp.flatten()),
-            slice_ref.flatten(),
-            (x_grid, y_grid),
-            method='linear',
-            fill_value=255
-        )
+        def _deform_slice(array_idx: int, grid_idx: int = None):
+            gird_idx = array_idx if grid_idx is None else grid_idx
+            self.logger.info('Applying distortion for slice %d', gird_idx)
+            v_slice = v[..., array_idx] if self.params.is_exist_ray_cell else v
+            y_interp = y_grid + v_slice
+            Vq = griddata(
+                (x_interp.flatten(), y_interp.flatten()),
+                vol_img_ref[..., array_idx].flatten(),
+                (x_grid, y_grid),
+                method='linear',
+                fill_value=255
+            )
+            img_interp = Vq.reshape(x_interp.shape)
+            img_interp = np.clip(img_interp, 0, 255).astype(np.uint8)
+            vol_img_ref[..., array_idx] = img_interp
 
-        img_interp = Vq.reshape(x_interp.shape)
-        img_interp = np.clip(img_interp, 0, 255).astype(np.uint8)
+        if self.num_parallel > 1:
+            indexes = list(enumerate(self.params.save_slice))
+            threads = []
+            while indexes or threads:
+                while len(threads) < self.num_parallel and indexes:
+                    arr_idx, grid_idx = indexes.pop(0)
+                    thread = threading.Thread(target=_deform_slice, args=(arr_idx, grid_idx))
+                    thread.start()
+                    threads.append(thread)
+                torm = [i for i,t in enumerate(threads) if not t.is_alive()][::-1]
+                for i in torm:
+                    threads.pop(i)
+                time.sleep(0.1)
+        else:
+            for arr_idx, grid_idx in enumerate(self.params.save_slice):
+                _deform_slice(arr_idx, grid_idx)
 
-        slice_ref[:,:] = img_interp
+        return vol_img_ref
+
+    def _apply_local_deformation_surrogate(
+            self, vol_img_ref: npt.NDArray, u: npt.NDArray, v: npt.NDArray
+        ) -> npt.NDArray:
+        """Apply the deformation using the surrogate model"""
+
+        if self.num_parallel == 1:
+            for i, slice_idx in enumerate(self.params.save_slice):
+                self.logger.info('[SURROGATE] Applying distortion for slice %d', slice_idx)
+                if self.params.is_exist_ray_cell:
+                    v_slice = v[..., i]
+                else:
+                    v_slice = v
+
+                img_interp = self.surrogate(
+                    self.torch.from_numpy(vol_img_ref[..., i] / 255.0).float().unsqueeze(0).unsqueeze(0).to(self.device),
+                    self.torch.from_numpy(u).float().unsqueeze(0).unsqueeze(0).to(self.device),
+                    self.torch.from_numpy(v_slice).float().unsqueeze(0).unsqueeze(0).to(self.device)
+                )
+                img_interp = 255.0 * img_interp.squeeze().detach().cpu().numpy()
+
+                vol_img_ref[..., i] = img_interp
+        else:
+            last = len(self.params.save_slice)
+            chunk_edges = list(range(0, last + 1, self.num_parallel))
+            if chunk_edges[-1] != last:
+                chunk_edges.append(last)
+            for start, end in zip(chunk_edges[:-1], chunk_edges[1:]):
+                # TODO: Change shape of array in tool so that Z is the first dimension
+                self.logger.info(
+                    '[SURROGATE] Applying distortion for slices %d to %d', start, end - 1
+                )
+                u_t = self.torch.from_numpy(
+                    np.full((end - start, *u.shape), u)
+                ).float().unsqueeze(1).to(self.device)
+
+                if self.params.is_exist_ray_cell:
+                    v_t = self.torch.from_numpy(
+                        np.transpose(v[..., start:end], axes=(2, 0, 1))
+                    ).float().unsqueeze(1).to(self.device)
+                else:
+                    v_t = self.torch.from_numpy(
+                        np.full((end - start, *v.shape), v)
+                    ).float().unsqueeze(1).to(self.device)
+
+                img_t = self.torch.from_numpy(
+                    np.transpose(vol_img_ref[..., start:end], axes=(2, 0, 1)) / 255.0
+                ).float().unsqueeze(1).to(self.device)
+
+                # print(f'{img_t.shape = }, {u_t.shape = }, {v_t.shape = }')
+                img_interp = self.surrogate(img_t, u_t, v_t)
+                img_interp = 255.0 * img_interp.squeeze().detach().cpu().numpy()
+
+                # print(f'{img_interp.shape = }')
+
+                vol_img_ref[..., start:end] = np.transpose(img_interp, axes=(1, 2, 0))
+
 
         return img_interp
 
@@ -938,9 +1073,6 @@ class WoodMicrostructure(Clock, ABC):
                         slice_idx
                     )
 
-            # Vq       = uint8(interpn(x_grid,y_grid,z_grid,volImgLocalDistSub,...
-            # x_interp(:),y_interp(:),z_interp(:),'linear'));
-            # VolImg_Temp   = reshape(Vq,[sizeImEnlarge(1),sizeImEnlarge(2),length(indxZ)]);
             self.logger.info(f'Interpolating... {x_grid.shape}')
             interp = RegularGridInterpolator(
                 (x_lin, y_lin, np.arange(slice_start, slice_end)),
@@ -1131,21 +1263,21 @@ class WoodMicrostructure(Clock, ABC):
             self.logger.info('Applying compression distortion to simulate late/earyl wood...')
             u += compress_all_valid_sub.reshape(-1, 1)
 
-        self.logger.info('=' * 80)
         for i, slice_idx in enumerate(self.params.save_slice):
-            self.logger.debug('Saving deformation for slice %d', slice_idx)
+            self.logger.debug('Saving distortion for slice %d', slice_idx)
             if self.params.is_exist_ray_cell:
                 v_slice = v[..., i]
             else:
                 v_slice = v
-                self.save_local_distortion(u, v_slice, slice_idx)
+            self.save_local_distortion(u, v_slice, slice_idx)
 
-            self.logger.info(f'Applying deformation... slice {slice_idx} ({i+1}/{len(self.params.save_slice)})')
-            img_interp = self.apply_local_deformation(vol_img_ref[..., i], u, v_slice)
+        self.apply_local_deformation(vol_img_ref, u, v)
 
+        for i, slice_idx in enumerate(self.params.save_slice):
             filename = os.path.join(self.root_dir, 'LocalDistVolume', f'volImgRef_{slice_idx+1:05d}.tiff')
-            self.save_2d_img(img_interp, filename, self.show_img)
+            self.save_2d_img(vol_img_ref[..., i], filename)
 
+        v_fmt = self.params.save_volume_format.lower()
         if self.params.apply_global_deform:
             if self.params.save_volume_as_3d:
                 filename = os.path.join(self.root_dir, 'FinalVolume3D', f'BeforeGlobalVolume.{v_fmt}')
@@ -1169,9 +1301,13 @@ class WoodMicrostructure(Clock, ABC):
         self.logger.info('======== DONE ========')
 
     @classmethod
-    def run_from_dict(cls, data: dict, output_dir: str = None, loglevel: int = logging.DEBUG):
+    def run_from_dict(
+            cls,
+            data: dict, output_dir: str = None, loglevel: int = logging.DEBUG,
+            num_parallel: int = 1
+        ) -> None:
         """Run the generator from a dictionary of parameters"""
         params = cls.ParamsClass.from_dict(data)
-        ms = cls(params, outdir=output_dir)
+        ms = cls(params, outdir=output_dir, num_parallel=num_parallel)
         ms.set_console_level(loglevel)
         ms.generate()
