@@ -185,6 +185,13 @@ class WoodMicrostructure(Clock, ABC):
             self.surrogate.load_state_dict(torch.load(weight_file, map_location=self.device))
         except Exception as e:
             weight_file = self.weights_home_path
+            try:
+                pathlib.Path(weight_file).parent.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                self.logger.error('Failed to create model directory for `%s`', cls_name)
+                self.logger.error(str(e))
+                sys.exit(1)
+
             if not os.path.exists(weight_file):
                 try:
                     self.download_surrogate_model(weight_file)
