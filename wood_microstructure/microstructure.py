@@ -2,6 +2,7 @@
 import importlib
 import logging
 import os
+import pathlib
 import sys
 import threading
 import time
@@ -11,6 +12,7 @@ from collections import defaultdict
 import nrrd
 import numpy as np
 import numpy.typing as npt
+import requests
 from PIL import Image
 from scipy.interpolate import CubicSpline, RegularGridInterpolator, griddata
 
@@ -21,10 +23,20 @@ from .fit_elipse import fit_elipse, fit_ellipse_6pt
 from .loggers import add_file_logger, get_logger, set_console_level
 from .params import BaseParams
 
+# https://github.com/AI-TranspWood/AITW_microstructures/raw/refs/heads/main/wood_microstructure/BirchMicrostructure.pt
+GIT_SOURCE = 'https://github.com'
+GIT_OWNER = 'AI-TranspWood'
+GIT_REPO = 'AITW_microstructures'
+# GIT_REF = "refs/heads/main"
+GIT_REF = '{commit}'
+MODEL_URL_TEMPLATE = f'{GIT_SOURCE}/{GIT_OWNER}/{GIT_REPO}/raw/{GIT_REF}/wood_microstructure/{{model_name}}.pt'
+
 
 class WoodMicrostructure(Clock, ABC):
     """Base class for wood microstructure generation"""
     ParamsClass: BaseParams = None
+
+    model_commit: str = None
 
     @property
     @abstractmethod
@@ -131,24 +143,103 @@ class WoodMicrostructure(Clock, ABC):
         self.device = None
         self.surrogate = None
         if self.params.surrogate:
-            try:
-                self.torch = torch = importlib.import_module('torch')
-            except ImportError as e:
-                self.logger.error('Install the package with the [surrogate] extra to use the surrogate model')
-                sys.exit(1)
-            from .surrogate import U_Net
-            cls_name = self.__class__.__name__
-            dir_name = os.path.dirname(__file__)
-            weight_file = os.path.join(dir_name, f'{cls_name}.pt')
-            if not os.path.exists(weight_file):
-                self.logger.error(f'Surrogate model weights {weight_file} not avialable for `{cls_name}`')
-                sys.exit(1)
-            self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-            self.surrogate = U_Net()
-            self.surrogate.to(self.device)
+            self.load_surrogate_model()
+
+    @property
+    def weights_filename(self) -> str:
+        """Get the name of the surrogate model"""
+        cls_name = self.__class__.__name__
+        return f'{cls_name}.pt'
+
+    @property
+    def weights_native_path(self) -> str:
+        """Get the native path of the surrogate model"""
+        dir_name = os.path.dirname(__file__)
+        weight_file = os.path.join(dir_name, self.weights_filename)
+        return weight_file
+
+    @property
+    def weights_home_path(self) -> str:
+        """Get the home path of the surrogate model"""
+        aitw_home = pathlib.Path.home() / '.aitw'
+        model_dir = aitw_home / 'models'
+        model_path = model_dir / self.weights_filename
+        return model_path.as_posix()
+
+    def load_surrogate_model(self):
+        """Load the surrogate model"""
+        cls_name = self.__class__.__name__
+        try:
+            self.torch = torch = importlib.import_module('torch')
+        except ImportError as e:
+            self.logger.error('Install the package with the \[surrogate] extra to use the surrogate model')
+            sys.exit(1)
+        from .surrogate import U_Net
+
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.surrogate = U_Net()
+        self.surrogate.to(self.device)
+
+        weight_file = self.weights_native_path
+        try:
             self.surrogate.load_state_dict(torch.load(weight_file, map_location=self.device))
-            self.logger.info('Using surrogate model with weights from `%s`', weight_file)
-            self.logger.info('Using device: %s', self.device)
+        except Exception as e:
+            weight_file = self.weights_home_path
+            if not os.path.exists(weight_file):
+                try:
+                    self.download_surrogate_model(weight_file)
+                except Exception as e:
+                    self.logger.error('Failed to download surrogate model weights for `%s`', cls_name)
+                    self.logger.error(str(e))
+                    sys.exit(1)
+            try:
+                self.surrogate.load_state_dict(torch.load(weight_file, map_location=self.device))
+            except Exception as e:
+                self.logger.error('Failed to load surrogate model weights from `%s`', weight_file)
+                self.logger.error(str(e))
+                sys.exit(1)
+
+        self.logger.info('Surrogate model weights loaded from `%s`', weight_file)
+        return weight_file
+
+    def download_surrogate_model(self, save_path: str):
+        """Download the surrogate model weights"""
+        cls_name = self.__class__.__name__
+        if self.model_commit is None:
+            raise ValueError(f'Model cannot be downloaded for `{cls_name}`: `model_commit` is not set')
+        url = MODEL_URL_TEMPLATE.format(model_name=cls_name, commit=self.model_commit)
+
+        self.logger.info('Downloading surrogate model weights for `%s` from `%s`', cls_name, url)
+
+        response = requests.get(url, stream=True)
+        total_size = int(response.headers.get('content-length', 0))
+        block_size = 4 * 1024  # 1 KB
+        wrote = 0
+        start_time = time.time()
+        last_time = -5
+        speed_units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+        with open(save_path, 'wb') as f:
+            for data in response.iter_content(block_size):
+                wrote = wrote + len(data)
+                f.write(data)
+                elapsed_time = time.time() - start_time
+                if elapsed_time - last_time > 1:
+                    speed = wrote / elapsed_time
+                    units = speed_units.copy()
+                    unit = units.pop(0)
+                    while speed > 1024 and len(units) > 1:
+                        speed /= 1024
+                        unit = units.pop(0)
+                    last_time = elapsed_time
+                    if total_size > 0:
+                        percent = wrote * 100 / total_size
+                        self.logger.debug(f'Downloading {save_path}: {percent:>4.2f}% at {speed:>6.2f} {unit}')
+                    else:
+                        self.logger.debug(f'Downloading {save_path}: {wrote:>10d} bytes at {speed:>6.2f} {unit}')
+
+        if total_size != 0 and wrote != total_size:
+            self.logger.error('Download failed: size mismatch')
+            raise Exception('Download failed: size mismatch')
 
     def set_console_level(self, level: int):
         """Set the console logging level"""

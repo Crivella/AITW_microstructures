@@ -18,6 +18,7 @@ class BirchMicrostructure(WoodMicrostructure):
     local_distortion_cutoff = 200
     ray_height_mod = 6
     skip_cell_thick_rescale = 2.0
+    model_commit = 'aef50579790849ba9c30a91a16688921aba9ac19'
 
     def get_distortion_map(self) -> tuple[npt.NDArray, npt.NDArray]:
         """Generate the distortion map for early wood and late wood"""
