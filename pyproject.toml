@@ -6,7 +6,7 @@ build-backend = "flit_core.buildapi"
 [project]
 # See https://www.python.org/dev/peps/pep-0621/
 name = "AITW_wood_microstructure"
-dynamic = ["version"] # read from ocr_translate/__init__.py
+dynamic = ["version"]
 description = "A Python rewrite of Wood-Microstructure-Modeling"
 authors = []
 readme = "README.md"
@@ -24,14 +24,15 @@ dependencies = [
     "numpy",
     "scipy",
     "pillow",
+    "requests",
     "trogon", "click",
     "rich", "rich-click",
     "pynrrd",
     # "multiprocess",
 ]
 
-# [project.urls]
-# Source = ""
+[project.urls]
+Source = "https://github.com/AI-TranspWood/AITW_microstructures"
 
 [project.optional-dependencies]
 surrogate = [
