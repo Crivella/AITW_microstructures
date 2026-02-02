@@ -21,6 +21,10 @@ wood_type_map: dict[str, WoodMicrostructure] = {
 @click.argument('wood_type', required=True, type=click.Choice(['spruce', 'birch'], case_sensitive=False))
 @click.argument('json_file', required=True, type=click.Path(exists=True))
 @click.option('--output_dir', type=click.Path(), help='Output directory')
+@click.option(
+    '--output-formats', type=str, required=False, default='tiff',
+    help='Comma-separated list of output formats for the 2D slices (png, tiff), default: tiff'
+)
 @click.option('-v', '--verbose', help='Verbose output', count=True)
 @click.option(
     '--num-parallel', type=int, default=1,
@@ -35,11 +39,17 @@ wood_type_map: dict[str, WoodMicrostructure] = {
 )
 @click.option('--surrogate/--no-surrogate', is_flag=True, default=False, help='Use surrogate model')
 def generate(
-        wood_type, json_file, output_dir, verbose,
+        wood_type, json_file, output_dir,
+        output_formats, verbose,
         num_concurrent, num_parallel,
         surrogate
     ) -> None:
     """Generate wood microstructure"""
+    allowed_fmts = WoodMicrostructure.allowed_output_formats_2d
+    output_formats = output_formats.replace(' ', '').split(',') if output_formats else ['tiff']
+    output_formats = [fmt.lower() for fmt in filter(None, output_formats)]
+    if not all(fmt in allowed_fmts for fmt in output_formats):
+        raise ValueError(f"Invalid output format(s). Allowed formats: {allowed_fmts}")
     cls = wood_type_map.get(wood_type.lower())
 
     loglevel = verbose_map.get(verbose, logging.DEBUG)
@@ -49,7 +59,7 @@ def generate(
     if isinstance(data, dict):
         data = [data]
 
-    args = [(d, output_dir, loglevel, num_parallel) for d in data]
+    args = [(d, output_dir, output_formats, loglevel, num_parallel) for d in data]
 
     if surrogate:
         for arg in args:

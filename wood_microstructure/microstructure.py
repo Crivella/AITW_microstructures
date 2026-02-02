@@ -37,6 +37,7 @@ class WoodMicrostructure(Clock, ABC):
     ParamsClass: BaseParams = None
 
     model_commit: str = None
+    allowed_output_formats_2d: list[str] = ['tiff', 'png']
 
     @property
     @abstractmethod
@@ -94,6 +95,7 @@ class WoodMicrostructure(Clock, ABC):
             self,
             params: BaseParams, *args,
             outdir: str = None, show_img: bool = False,
+            output_formats: list[str] = None,
             num_parallel = 1,
             **kwargs
         ):
@@ -107,6 +109,7 @@ class WoodMicrostructure(Clock, ABC):
 
         self.show_img = show_img
         self.outdir = outdir or os.getenv('ROOT_DIR', '.')
+        self.output_formats = output_formats or ['tiff']
 
         # Setup logging
         num = self.get_root_dir()
@@ -1225,8 +1228,15 @@ class WoodMicrostructure(Clock, ABC):
         os.makedirs(dirname, exist_ok=True)
 
     @staticmethod
+    def _save_2d_img_ext(image: Image.Image, filename: str, ext: str):
+        """Save a PIL image to a TIFF file"""
+        WoodMicrostructure.ensure_dir(filename)
+        base, _ = os.path.splitext(filename)
+        filename = f'{base}.{ext}'
+        image.save(filename)
+
     @Clock.register(['I/O', 'image'])
-    def save_2d_img(data: npt.NDArray, filename: str, show: bool = False):
+    def save_2d_img(self, data: npt.NDArray, filename: str, show: bool = False):
         """Save 2D data to a TIFF file"""
         WoodMicrostructure.ensure_dir(filename)
 
@@ -1234,7 +1244,8 @@ class WoodMicrostructure(Clock, ABC):
         img = Image.fromarray(data.astype(np.uint8), mode='L')
         if show:
             img.show()
-        img.save(filename)
+        for fmt in self.output_formats:
+            self._save_2d_img_ext(img, filename, fmt)
 
     @staticmethod
     @Clock.register(['I/O', 'image'])
@@ -1392,11 +1403,15 @@ class WoodMicrostructure(Clock, ABC):
     @classmethod
     def run_from_dict(
             cls,
-            data: dict, output_dir: str = None, loglevel: int = logging.DEBUG,
+            data: dict, output_dir: str = None, output_formats: list[str] = None,
+            loglevel: int = logging.DEBUG,
             num_parallel: int = 1
         ) -> None:
         """Run the generator from a dictionary of parameters"""
         params = cls.ParamsClass.from_dict(data)
-        ms = cls(params, outdir=output_dir, num_parallel=num_parallel)
+        ms = cls(
+            params, outdir=output_dir, output_formats=output_formats,
+            num_parallel=num_parallel
+        )
         ms.set_console_level(loglevel)
         ms.generate()
