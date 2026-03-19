@@ -1204,6 +1204,76 @@ class WoodMicrostructure(Clock, ABC):
 
         return final_volume
 
+    @Clock.register(['deformation', 'global'])
+    def apply_global_deformation2(self, vol_img_ref: npt.NDArray, u1: npt.NDArray, v1: npt.NDArray) -> npt.NDArray:
+        """Apply global deformation to the volume image"""
+        if not self.params.all_slices:
+            raise RuntimeError('Global deformation is only applied when all slices are saved.')
+        self.logger.info('=' * 80)
+        self.logger.info('Global deformation...')
+
+        sie_x, sie_y, sie_z = self.params.size_im_enlarge
+
+        x_lin = np.arange(sie_x)
+        y_lin = np.arange(sie_y)
+
+        # self.logger.info(f'{sie_x = }, {sie_y = }, {sie_z = }')
+        # self.logger.info(f'slice_interest: {self.slice_interest}')
+        # for slice_start, slice_end in zip(self.slice_interest[:-1], self.slice_interest[1:]):
+        for slice_idx in range(sie_z):
+            slice_start = slice_idx
+            slice_end = slice_idx + 1
+            self.logger.debug(f'Global distortion slice {slice_start} to {slice_end}...')
+
+            x_grid, y_grid, z_grid = np.mgrid[0:sie_x, 0:sie_y, slice_start:slice_end]
+
+            x_interp, y_interp, z_interp, u_all_z, v_all_z = self._get_global_interp_grid(
+                x_grid, y_grid, z_grid, u1, v1
+            )
+
+            if self.params.save_global_dist:
+                for slice_idx in range(slice_start, slice_end):
+                    self.save_global_distortion(
+                        u_all_z[..., slice_idx - slice_start],
+                        v_all_z[..., slice_idx - slice_start],
+                        slice_idx
+                    )
+
+            self.logger.info(f'Interpolating... {x_grid.shape}')
+            interp = RegularGridInterpolator(
+                (x_lin, y_lin, np.arange(slice_start, slice_end)),
+                vol_img_ref[..., slice_start:slice_end],
+                method='linear',
+                bounds_error=False,
+                fill_value=255
+            )
+            vol_img_ref[..., slice_start:slice_end] = interp(
+                np.stack((x_interp, y_interp, z_interp), axis=-1)
+            ).astype(np.uint8)
+
+            dirname = 'GlobalDistVolume'
+            for slice_idx in range(slice_start, slice_end):
+                filename = os.path.join(self.root_dir, dirname, f'volImgRef_{slice_idx+1:05d}.tiff')
+                self.save_2d_img(vol_img_ref[..., slice_idx], filename)
+
+        extra_size = np.array(self.params.extra_size, dtype=int)
+        extra_sx_mid, extra_sy_mid, extra_sz_mid = extra_size // 2 + extra_size % 2
+
+        vol_sx, vol_sy, vol_sz = self.params.size_volume
+
+        final_volume = vol_img_ref[
+            extra_sx_mid:extra_sx_mid + vol_sx,
+            extra_sy_mid:extra_sy_mid + vol_sy,
+            extra_sz_mid:extra_sz_mid + vol_sz
+        ]
+
+        dirname = 'FinalVolumeSlice'
+        for idx in range(final_volume.shape[2]):
+            filename = os.path.join(self.root_dir, dirname, f'volImgRef_{idx + 1:05d}.tiff')
+            self.save_2d_img(final_volume[:,:,idx], filename)
+
+        return final_volume
+
     @Clock.register('I/O')
     def create_dirs(self):
         """Ensure the output directories are created"""
@@ -1382,7 +1452,11 @@ class WoodMicrostructure(Clock, ABC):
             if self.params.save_volume_as_3d:
                 filename = os.path.join(self.root_dir, 'FinalVolume3D', f'BeforeGlobalVolume.{v_fmt}')
                 self.save_3d_img(vol_img_ref, filename)
-            vol_img_ref = self.apply_global_deformation(vol_img_ref, u1, v1)
+            app = vol_img_ref.copy()
+            vol_img_ref = self.apply_global_deformation(app, u1, v1)
+            vol_img_ref2 = self.apply_global_deformation2(app, u1, v1)
+
+            self.logger.info(f'Diff between global deformation methods: {np.abs(vol_img_ref - vol_img_ref2).sum()}')
 
         if self.params.save_volume_as_3d:
             filename = os.path.join(self.root_dir, 'FinalVolume3D', f'FinalVolume.{v_fmt}')
