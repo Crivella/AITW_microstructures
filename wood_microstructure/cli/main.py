@@ -1,4 +1,5 @@
 """Command line interface for wood_microstructure."""
+import os
 
 from trogon import tui
 
@@ -18,7 +19,7 @@ else:
 
     from rich.traceback import install
     install(
-        show_locals=True,
+        show_locals=os.getenv('WOOD_MS_DEBUG', '0').lower() in ('1', 'true', 'yes'),
         suppress=[rich, click, original_click, multiprocessing],
     )
 
