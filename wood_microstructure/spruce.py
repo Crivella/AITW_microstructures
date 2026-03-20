@@ -248,31 +248,6 @@ class SpruceMicrostructure(WoodMicrostructure):
 
     def _get_global_interp_grid(
             self,
-            x_grid: npt.NDArray, y_grid: npt.NDArray, z_grid: npt.NDArray,
-            u1: npt.NDArray, v1: npt.NDArray
-        ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
-        """Get the interpolation grid for global deformation"""
-        sie_x, sie_y, sie_z = self.params.size_im_enlarge
-
-        # v_allz   = (x_grid-sizeImEnlarge(1)*2/5).^3/1e7/2+(y_grid-sizeImEnlarge(2)/2).*(z_grid-sizeImEnlarge(3)/2)/(10^4)/5;
-        v_all_z = (
-            (x_grid - sie_x * 2 / 5)**3 / 1e7 / 2 +
-            (y_grid - sie_y / 2) * (z_grid - sie_z / 2) / 1e4 / 5
-        )
-        # u_allz   = (y_grid-sizeImEnlarge(1)/3).^2/1e4/3+(x_grid-sizeImEnlarge(2)/3).*(z_grid-sizeImEnlarge(3)/3)/(10^4)/4;
-        u_all_z = (
-            (y_grid - sie_x / 3)**2 / 1e4 / 3 +
-            (x_grid - sie_y / 3) * (z_grid - sie_z / 3) / 1e4 / 4
-        ) + u1[..., np.newaxis]
-
-        x_interp = x_grid - u_all_z
-        y_interp = y_grid - v_all_z
-        z_interp = z_grid
-
-        return x_interp, y_interp, z_interp, u_all_z, v_all_z
-
-    def _get_global_interp_grid2(
-            self,
             x_grid: npt.NDArray, y_grid: npt.NDArray, slice_idx: int,
             u1: npt.NDArray, v1: npt.NDArray
         ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
