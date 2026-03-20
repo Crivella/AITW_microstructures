@@ -1398,6 +1398,12 @@ class WoodMicrostructure(Clock, ABC):
         for i,width in enumerate(ray_cell_width):
             self.logger.debug('   %d %s', i+1, width)
 
+        u, v, u1, v1 = self.generate_deformation(ray_cell_x_ind, indx_skip_all, indx_vessel_cen)
+        self.logger.debug('u.shape: %s  min/max: %s %s', u.shape, u.min(), u.max())
+        self.logger.debug('v.shape: %s  min/max: %s %s', v.shape, v.min(), v.max())
+        self.logger.debug('u1.shape: %s  min/max: %s %s', u1.shape, u1.min(), u1.max())
+        self.logger.debug('v1.shape: %s  min/max: %s %s', v1.shape, v1.min(), v1.max())
+
         shape = list(self.params.size_im_enlarge)
         shape[2] = len(self.params.save_slice)
         vol_img_ref = np.full(shape, 255, dtype=float)
@@ -1416,12 +1422,6 @@ class WoodMicrostructure(Clock, ABC):
 
         # Save the generated volume
         self.save_slices(vol_img_ref, 'volImgBackBone')
-
-        u, v, u1, v1 = self.generate_deformation(ray_cell_x_ind, indx_skip_all, indx_vessel_cen)
-        self.logger.debug('u.shape: %s  min/max: %s %s', u.shape, u.min(), u.max())
-        self.logger.debug('v.shape: %s  min/max: %s %s', v.shape, v.min(), v.max())
-        self.logger.debug('u1.shape: %s  min/max: %s %s', u1.shape, u1.min(), u1.max())
-        self.logger.debug('v1.shape: %s  min/max: %s %s', v1.shape, v1.min(), v1.max())
 
         if self.params.is_exist_ray_cell:
             v_all_ray = self.ray_cell_shrinking(ray_cell_width, ray_cell_x_ind, v)
