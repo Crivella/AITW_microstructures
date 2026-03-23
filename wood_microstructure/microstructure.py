@@ -1162,7 +1162,7 @@ class WoodMicrostructure(Clock, ABC):
 
             x_grid, y_grid = np.mgrid[0:sie_x, 0:sie_y]
 
-            x_interp, y_interp, u_all_z, v_all_z = self._get_global_interp_grid2(
+            x_interp, y_interp, u_all_z, v_all_z = self._get_global_interp_grid(
                 x_grid, y_grid, slice_idx, u1, v1
             )
 
