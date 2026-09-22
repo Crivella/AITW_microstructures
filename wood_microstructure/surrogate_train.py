@@ -158,6 +158,23 @@ class TrainSurrogate(Pipeline[TrainParams]):
         self.model = U_Net()
         self.model.to(self.device)
 
+        if self.params.pretrain_weights:
+            weights = torch.load(self.params.pretrain_weights, map_location=self.device)
+            self.model.load_state_dict(weights)
+
+        if self.params.frozen_layers:
+            frozen_layers = set(self.params.frozen_layers)
+            used = set()
+            for name, param in self.model.named_parameters():
+                for prefix in frozen_layers:
+                    if name.startswith(prefix):
+                        param.requires_grad = False
+                        used.add(prefix)
+                        self.logger.info('Freezing layer: %s', name)
+                        break
+            if unused := frozen_layers - used:
+                self.logger.warning('Unused frozen layers: %s', ', '.join(unused))
+
         self.loss_fn = nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.params.learning_rate)
 

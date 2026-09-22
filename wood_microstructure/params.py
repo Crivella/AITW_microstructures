@@ -8,7 +8,33 @@ from typing import ClassVar, Self
 import numpy as np
 import numpy.typing as npt
 import rich_click as click
+from click import ParamType
 from click.core import ParameterSource
+
+
+class DelimitedList(click.ParamType):
+    """A custom Click parameter type that parses a comma-separated list of values."""
+
+    name = 'list'
+
+    def __init__(self, delimiter=',', subtype=str, exact_length=None):
+        super().__init__()
+        self.delimiter = delimiter
+        self.subtype = subtype
+        self.exact_length = exact_length
+
+    def convert(self, value, param, ctx):
+        if isinstance(value, list):
+            res = [self.subtype(item) for item in value]
+        else:
+            try:
+                items = value.split(self.delimiter)
+                res = [self.subtype(item.strip()) for item in items]
+            except Exception as e:
+                self.fail(f"Could not parse list: {e}", param, ctx)
+
+        if self.exact_length is not None and len(res) != self.exact_length:
+            self.fail(f"Expected exactly {self.exact_length} items, got {len(res)}", param, ctx)
 
 
 @dataclass
@@ -74,12 +100,16 @@ class JsonParams:
             overrides[name] = value
 
         for fld in fields(cls)[::-1]:
+            extra_help = ''
             metadata = getattr(fld, 'metadata', {})
             if not fld.init:
                 continue
             if fld.name.startswith('_'):
                 continue
-            if fld.type not in (int, float, str, bool):
+            if fld.type not in (
+                    int, float, str, bool,
+                    list[str], tuple[int, int, int]
+                ):
                 continue
 
             typ = fld.type
@@ -94,6 +124,12 @@ class JsonParams:
                     typ = click.Path(exists=True, dir_okay=False, readable=True, resolve_path=True)
                 elif metadata.get('dir', False):
                     typ = click.Path(exists=True, file_okay=False, readable=True, resolve_path=True)
+            elif typ == list[str]:
+                typ = DelimitedList()
+                extra_help = ' (comma-separated list)'
+            elif typ == tuple[int, int, int]:
+                typ = DelimitedList(subtype=int, exact_length=3)
+                extra_help = ' (comma-separated list of 3 integers)'
 
             expose = metadata.get('expose_value', False)
             # prefix = '--param-' if not expose else '--'
@@ -109,13 +145,17 @@ class JsonParams:
             group = metadata.get('group', OVERRIDE_GROUP)
             groups.add(group)
 
+            help_str = metadata.get('help', None)
+            if help_str is not None and extra_help:
+                help_str += extra_help
+
             kwargs = {
                 'type': typ,
                 'is_flag': fld.type == bool,
                 'required': required,
                 'expose_value': expose,
                 'callback': callback,
-                'help': metadata.get('help', None),
+                'help': help_str,
                 'panel': group,
             }
 
@@ -646,6 +686,22 @@ class TrainParams(JsonParams):
             'help': 'Save model checkpoint every N epochs. Set to 0 to disable checkpoint saving.',
             'group': 'Training Options',
             'min': 0,
+        }
+    )
+
+    pretrain_weights: str = field(
+        default=None,
+        metadata={
+            'help': 'Path to pre-trained model weights to initialize training. If None, training starts from scratch.',
+            'group': 'Transfer Options',
+            'file': True,
+        }
+    )
+    frozen_layers: list[str] = field(
+        default_factory=list,
+        metadata={
+            'help': 'List of layer names to freeze during training. If empty, all layers are trainable.',
+            'group': 'Transfer Options',
         }
     )
 
