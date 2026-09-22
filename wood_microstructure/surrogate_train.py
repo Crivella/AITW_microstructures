@@ -84,14 +84,14 @@ class ImageDataset(Dataset):
 
         # u_map = pd.read_csv(self.u_maps[index], header=None)
         u_map = myio.read_slice(self.u_maps[index])
-        u_map = torch.tensor(u_map.to_numpy().astype(np.float32))
+        u_map = torch.tensor(u_map.astype(np.float32))
         u_map = torch.unsqueeze(u_map,0)
         # if self.padded == True:
         #     u_map = self.zeropadding(u_map)
 
         # v_map = pd.read_csv(self.v_maps[index], header=None)
         v_map = myio.read_slice(self.v_maps[index])
-        v_map = torch.tensor(v_map.to_numpy().astype(np.float32))
+        v_map = torch.tensor(v_map.astype(np.float32))
         v_map = torch.unsqueeze(v_map,0)
         # if self.padded == True:
         #     v_map = self.zeropadding(v_map)
@@ -262,6 +262,22 @@ class TrainSurrogate(RichMixin, LoggerMixin, Clock):
         self.valid_set = ImageDataset(*paths['validation'], padded=False)
         self.test_set = ImageDataset(*paths['test'], padded=False)
 
+        train_size = len(self.train_set)
+        valid_size = len(self.valid_set)
+        test_size = len(self.test_set)
+        self.logger.info('Training set size: %d samples', train_size)
+        self.logger.info('Validation set size: %d samples', valid_size)
+        self.logger.info('Test set size: %d samples', test_size)
+
+        if train_size == 0:
+            self.logger.error('Training set is empty. Please check the training data directory.')
+            sys.exit(1)
+        if valid_size == 0:
+            self.logger.error('Validation set is empty. Please check the validation data directory.')
+            sys.exit(1)
+        if test_size == 0:
+            self.logger.warning('Test set is empty. Will skip final test. Please check the test data directory.')
+
         self.train_loader = DataLoader(
             self.train_set, batch_size=self.params.training_batch_size,
             shuffle=True, collate_fn=self._custom_collate, num_workers=params.training_workers
@@ -343,9 +359,9 @@ class TrainSurrogate(RichMixin, LoggerMixin, Clock):
     def run_training(self):
         """Run the training loop for the surrogate model"""
         patience = 0
-        for epoch in self.track_step(range(self.params.num_epochs), description='Training epochs'):
+        for epoch in self.track_step(range(self.params.epochs), description='Training epochs'):
             self.epoch = epoch
-            self.logger.info('Starting epoch %d/%d', epoch + 1, self.params.num_epochs)
+            self.logger.info('Starting epoch %d/%d', epoch + 1, self.params.epochs)
             train_loss = self.train_one_epoch()
             val_loss = self.validate_one_epoch()
 
@@ -392,6 +408,11 @@ class TrainSurrogate(RichMixin, LoggerMixin, Clock):
         """Evaluate the model on a test set and return the loss"""
         dataset = self.test_set
         device = self.device
+
+        if dataset is None or len(dataset) == 0:
+            self.logger.warning('Test set is empty. Skipping test loss evaluation.')
+            return
+
         transform = ToPILImage()
         num_samples = len(dataset)
         test_loss = 0.0
