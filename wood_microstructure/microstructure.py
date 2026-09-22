@@ -267,7 +267,7 @@ class WoodMicrostructure(Pipeline[BaseWoodParams], ABC):
         self.surrogate = U_Net()
         self.surrogate.to(self.device)
 
-        weight_file = self.weights_native_path
+        weight_file = self.params.weight_file or self.weights_native_path
         try:
             self.surrogate.load_state_dict(torch.load(weight_file, map_location=self.device))
         except Exception as e:
@@ -1489,12 +1489,6 @@ class WoodMicrostructure(Pipeline[BaseWoodParams], ABC):
         filename = f'{base}.{self.v_fmt}'
         path = os.path.join(self.root_dir, dirname, filename)
         self.save_3d_img(self.vol_img_ref, path)
-
-    @staticmethod
-    def ensure_dir(filename: str):
-        """Ensure the directory exists"""
-        dirname = os.path.dirname(filename)
-        os.makedirs(dirname, exist_ok=True)
 
     @staticmethod
     def _save_2d_img_ext(image: Image.Image, filename: str, ext: str):

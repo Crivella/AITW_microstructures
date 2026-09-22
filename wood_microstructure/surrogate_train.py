@@ -412,13 +412,13 @@ class TrainSurrogate(Pipeline[TrainParams]):
         test_loss = 0.0
 
         test_outdir = os.path.join(self.root_dir, 'test_output')
-
         for i, sample in enumerate(dataset):
             pred = self.model(torch.unsqueeze(sample[0],0).to(device),torch.unsqueeze(sample[1],0).to(device),torch.unsqueeze(sample[2],0).to(device))
             test_loss += self.loss_fn(pred, torch.unsqueeze(sample[3], 0).to(device)).item()
 
             img = transform(torch.squeeze(pred))
             file_out = os.path.join(test_outdir, str(sample[4]))
+            self.ensure_dir(file_out)
             img.save(file_out)
             self.logger.debug('Saved %s test output image: %s', i, file_out)
 

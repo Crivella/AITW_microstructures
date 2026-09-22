@@ -232,6 +232,13 @@ class BaseWoodParams(JsonParams):
             'help': 'Whether to use surrogate model for local deformation',
         },
     )
+    weight_file: str = field(
+        default=None,
+        metadata={
+            'help': 'Path to the weight file for the surrogate model',
+            'file': True,
+        },
+    )
     binarize_threshold: int = field(
         default=None, metadata={
             'help': 'Threshold for binarization of the final volume data. If None, no bin is applied.',

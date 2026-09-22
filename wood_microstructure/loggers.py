@@ -14,6 +14,12 @@ class LoggerMixin:
     save_prefix = None
     logname = 'wood_microstructure'
 
+    @staticmethod
+    def ensure_dir(filename: str):
+        """Ensure the directory exists"""
+        dirname = os.path.dirname(filename)
+        os.makedirs(dirname, exist_ok=True)
+
     def __init__(self, *args, output_dir: str = None, **kwargs):
         self.init_outdir(output_dir)
         self.init_logging()
