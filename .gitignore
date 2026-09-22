@@ -5,6 +5,7 @@
 __pycache__
 *.sqlite3*
 media
+train_surrogate_*
 
 # Backup files #
 *.bak
