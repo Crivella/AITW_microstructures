@@ -4,7 +4,7 @@ import multiprocessing as mp
 
 from .. import BirchMicrostructure, SpruceMicrostructure
 from ..microstructure import WoodMicrostructure
-from ..params import BaseParams
+from ..params import BaseWoodParams
 from .main import click, wood_microstructure
 
 verbose_map = {
@@ -39,7 +39,7 @@ wood_type_map: dict[str, WoodMicrostructure] = {
     '--num-concurrent', type=int, default=1,
     help='Number of concurrent microstructure generations.'
 )
-@BaseParams.to_click_options
+@BaseWoodParams.to_click_options
 def generate(
         ctx,
         wood_type, config_file, output_dir,
@@ -69,14 +69,22 @@ def generate(
         for dct in data:
             dct.update(overrides)
 
-    args = [(d, output_dir, output_formats, loglevel, num_parallel) for d in data]
+    kwargs = [{
+        'data': d,
+        'loglevel': loglevel,
+        'output_dir': output_dir,
+        'output_formats': output_formats,
+        'num_parallel': num_parallel,
+    } for d in data]
 
     if num_concurrent > 1:
+        def callable(dct):
+            cls.run_from_dict(**dct)
         with mp.Pool(num_concurrent) as pool:
-            pool.starmap(cls.run_from_dict, args)
+            pool.map(callable, kwargs)
     else:
-        for arg in args:
-            cls.run_from_dict(*arg)
+        for dct in kwargs:
+            cls.run_from_dict(**dct)
 
 __all__ = [
     'generate'

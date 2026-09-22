@@ -14,8 +14,8 @@ class LoggerMixin:
     save_prefix = None
     logname = 'wood_microstructure'
 
-    def __init__(self, *args, outdir: str = None, **kwargs):
-        self.init_outdir(outdir)
+    def __init__(self, *args, output_dir: str = None, **kwargs):
+        self.init_outdir(output_dir)
         self.init_logging()
         self.handler_level = logging.DEBUG
         super().__init__(*args, **kwargs)

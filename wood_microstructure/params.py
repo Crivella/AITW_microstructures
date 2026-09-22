@@ -134,7 +134,7 @@ class JsonParams:
         return func
 
 @dataclass
-class BaseParams(JsonParams):
+class BaseWoodParams(JsonParams):
     """Base class for parameters"""
     # period_parameter: int  # This parameter is related to the period of the year ring size
     period_parameter: int = field(metadata={'help': 'This parameter is related to the period of the year ring size'})
@@ -350,7 +350,7 @@ class BaseParams(JsonParams):
 
 def with_default(field_name: str, default, **kwargs) -> Field:
     """Return a new field of `BaseParams` with the default value replaced"""
-    fld: Field = BaseParams.__dataclass_fields__[field_name]
+    fld: Field = BaseWoodParams.__dataclass_fields__[field_name]
     new = copy(fld)
     new.default = default
     for key, value in kwargs.items():
@@ -358,7 +358,7 @@ def with_default(field_name: str, default, **kwargs) -> Field:
     return new
 
 @dataclass
-class BirchParams(BaseParams):
+class BirchParams(BaseWoodParams):
     """Define the parameters for birch"""
     period_parameter: int = with_default('period_parameter', default=0)
 
@@ -385,7 +385,7 @@ class BirchParams(BaseParams):
 
 
 @dataclass
-class SpruceParams(BaseParams):
+class SpruceParams(BaseWoodParams):
     """Define the parameters for spruce"""
     period_parameter: int = with_default('period_parameter', default=1000)
 

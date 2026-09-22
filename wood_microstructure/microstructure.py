@@ -21,9 +21,8 @@ from . import utils
 from .clocks import Clock
 from .filter_fit_porosity import FitPorosity
 from .fit_elipse import fit_elipse, fit_ellipse_6pt
-from .loggers import LoggerMixin
-from .params import BaseParams
-from .progress import RichMixin
+from .params import BaseWoodParams
+from .pipeline import Pipeline
 
 # https://github.com/AI-TranspWood/AITW_microstructures/raw/refs/heads/main/wood_microstructure/BirchMicrostructure.pt
 GIT_SOURCE = 'https://github.com'
@@ -34,9 +33,9 @@ GIT_REF = '{commit}'
 MODEL_URL_TEMPLATE = f'{GIT_SOURCE}/{GIT_OWNER}/{GIT_REPO}/raw/{GIT_REF}/wood_microstructure/{{model_name}}.pt'
 
 
-class WoodMicrostructure(RichMixin, LoggerMixin, Clock, ABC):
+class WoodMicrostructure(Pipeline[BaseWoodParams], ABC):
     """Base class for wood microstructure generation"""
-    ParamsClass: BaseParams = None
+    ParamsClass: BaseWoodParams = None
 
     model_commit: str = None
     allowed_output_formats_2d: list[str] = ['tiff', 'png']
@@ -175,8 +174,7 @@ class WoodMicrostructure(RichMixin, LoggerMixin, Clock, ABC):
         return indx_vessel_cen
 
     def __init__(
-            self,
-            params: BaseParams, *args,
+            self, *args,
             show_img: bool = False,
             output_formats: list[str] = None,
             num_parallel = 1,
@@ -189,14 +187,10 @@ class WoodMicrostructure(RichMixin, LoggerMixin, Clock, ABC):
         self.show_img = show_img
         self.output_formats = output_formats or ['tiff']
 
-        self.init_params(params)
-
         self.init_parallel(num_parallel)
         self.init_torch()
         self.init_cupy()
         self.init_surrogate()
-
-        self.init_pipeline()
 
     def init_attributes(self):
         """Initialize attributes"""
@@ -214,13 +208,6 @@ class WoodMicrostructure(RichMixin, LoggerMixin, Clock, ABC):
         self.indx_vessel_cen = None
         self.indx_ves_edges = None
         self.indx_skip_all = None
-
-    def init_params(self, params: BaseParams):
-        """Initialize parameters"""
-        self.params = params
-
-        save_param_file = os.path.join(self.root_dir, 'params.json')
-        self.params.to_json(save_param_file)
 
     def init_parallel(self, num_parallel: int):
         """Initialize parallel processing."""
@@ -372,34 +359,6 @@ class WoodMicrostructure(RichMixin, LoggerMixin, Clock, ABC):
         tasks.append((self.save_volume, ['FinalVolume3D', 'FinalVolume.nrrd'], {}, False))
 
         tasks.append((self.fit_porosity, [], {}, bool(self.params.fit_porosity)))
-
-    def run_pipeline(self):
-        """Run the pipeline of tasks"""
-        cls_name = self.__class__.__name__
-        op = self.overall_progress
-        sp = self.step_progress
-
-        idx = 0
-        success_colors = ['green', 'bold green']
-        self.overall_task_id = ot_id = op.add_task(f'Generating {cls_name} ...', total=len(self.tasks))
-        with self.rich_live:
-            for func, args, kwargs, logtask in self.tasks:
-                self.logger.debug('=' * 80)
-                self.logger.debug('Running task: %s', func.__name__)
-                self.logger.debug('Task args: %s', args)
-                self.logger.debug('Task kwargs: %s', kwargs)
-                if logtask:
-                    step_id = sp.add_task(f'{func.__name__:>30s}', total=1)
-
-                func(*args, **kwargs)
-
-                if logtask:
-                    color = success_colors[idx % len(success_colors)]
-                    sp.advance(step_id, 1)
-                    sp.update(step_id, description=f'[{color}]{func.__name__:>30s}')
-                    idx += 1
-
-                op.update(ot_id, advance=1)
 
     @property
     def weights_filename(self) -> str:
@@ -1639,28 +1598,3 @@ class WoodMicrostructure(RichMixin, LoggerMixin, Clock, ABC):
     def v_fmt(self):
         """Get the volume format for saving"""
         return self.params.save_volume_format.lower()
-
-    def report(self):
-        """Final report for the generation"""
-        self.logger.info(self.report_clocks())
-
-    def generate(self):
-        """Generate the volume image"""
-        self.run_pipeline()
-        self.report()
-
-    @classmethod
-    def run_from_dict(
-            cls,
-            data: dict, output_dir: str = None, output_formats: list[str] = None,
-            loglevel: int = logging.DEBUG,
-            num_parallel: int = 1
-        ) -> None:
-        """Run the generator from a dictionary of parameters"""
-        params = cls.ParamsClass.from_dict(data)
-        ms = cls(
-            params, outdir=output_dir, output_formats=output_formats,
-            num_parallel=num_parallel
-        )
-        ms.set_console_level(loglevel)
-        ms.generate()

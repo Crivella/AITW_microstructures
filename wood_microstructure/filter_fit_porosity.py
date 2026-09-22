@@ -12,7 +12,6 @@ Features:
 Binary convention: 0 = pore, 255 = solid
 """
 import json
-import logging
 import os
 import sys
 
@@ -22,36 +21,25 @@ from scipy import ndimage
 
 from . import myio, utils
 from .clocks import Clock
-from .loggers import LoggerMixin
 from .params import FitPorosityParams
-from .progress import RichMixin
+from .pipeline import Pipeline
 
 
-class FitPorosity(RichMixin, LoggerMixin, Clock):
+class FitPorosity(Pipeline[FitPorosityParams]):
+    ParamsClass = FitPorosityParams
     save_prefix = 'fit_porosity'
     logname = 'fit_porosity'
 
-    def __init__(self, params: FitPorosityParams, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.init_params(params)
-        self.init_pipeline()
-
     def init_params(self, params: FitPorosityParams):
         """Initialize parameters"""
-        self.params = params
-
-        save_param_file = os.path.join(self.root_dir, 'params.json')
-        self.params.to_json(save_param_file)
+        super().init_params(params)
 
         self.data = myio.read_volume(self.params.input_file).astype(np.float32)
-
         self.geom_slice = (slice(None), slice(None), slice(None))
 
     def init_pipeline(self):
         """Initialize pipeline"""
-        self.tasks = tasks = []
-
+        tasks = self.tasks
         tasks.append((self.preproces_image, [], {}, False))
         tasks.append((self.calc_original_porosity, [], {}, False))
         tasks.append((self.downsample, [], {}, self.params.down > 1))
@@ -69,34 +57,6 @@ class FitPorosity(RichMixin, LoggerMixin, Clock):
         ))
         tasks.append((self.validate, [], {}, True))
         tasks.append((self.save_results, [], {}, True))
-
-    def run_pipeline(self):
-        """Run the pipeline of tasks"""
-        cls_name = self.__class__.__name__
-        op = self.overall_progress
-        sp = self.step_progress
-
-        idx = 0
-        success_colors = ['green', 'bold green']
-        self.overall_task_id = ot_id = op.add_task(f'Generating {cls_name} ...', total=len(self.tasks))
-        with self.rich_live:
-            for func, args, kwargs, logtask in self.tasks:
-                self.logger.debug('=' * 80)
-                self.logger.debug('Running task: %s', func.__name__)
-                self.logger.debug('Task args: %s', args)
-                self.logger.debug('Task kwargs: %s', kwargs)
-                if logtask:
-                    step_id = sp.add_task(f'{func.__name__:>30s}', total=1)
-
-                func(*args, **kwargs)
-
-                if logtask:
-                    color = success_colors[idx % len(success_colors)]
-                    sp.advance(step_id, 1)
-                    sp.update(step_id, description=f'[{color}]{func.__name__:>30s}')
-                    idx += 1
-
-                op.update(ot_id, advance=1)
 
     def _is_binary(self):
         """Check if the input data is in binary format or grayscale format."""
@@ -635,24 +595,3 @@ class FitPorosity(RichMixin, LoggerMixin, Clock):
         """Save the output image and porosity information"""
         self._save_image()
         self._save_params()
-
-    def report(self):
-        """Final report for the generation"""
-        self.logger.info(self.report_clocks())
-
-    def run(self):
-        """Generate the volume image"""
-        self.run_pipeline()
-        self.report()
-
-    @classmethod
-    def run_from_dict(
-            cls,
-            data: dict, output_dir: str = None,
-            loglevel: int = logging.DEBUG,
-        ) -> None:
-        """Run the generator from a dictionary of parameters"""
-        params = FitPorosityParams.from_dict(data)
-        ffp = cls(params, outdir=output_dir)
-        ffp.set_console_level(loglevel)
-        ffp.run()

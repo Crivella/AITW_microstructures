@@ -22,7 +22,7 @@ params = BirchParams.from_json('FILE_PATH.json')
 
 for param in params:
     birch = BirchMicrostructure(param)
-    birch.generate()
+    birch.run()
 ```
 
 ### CLI

@@ -2,9 +2,7 @@
 Training of the surrogate model for the undistorted to distorted microstructure mapping.
 """
 import copy
-# import importlib
 import json
-import logging
 import os
 import sys
 
@@ -12,17 +10,8 @@ import numpy as np
 
 from . import myio
 from .clocks import Clock
-from .loggers import LoggerMixin
 from .params import TrainParams
-from .progress import RichMixin
-
-# import numpy.typing as npt
-# import pandas as pd
-# from PIL import Image
-
-
-# from scipy import ndimage
-
+from .pipeline import Pipeline
 
 try:
     import torch
@@ -127,16 +116,15 @@ class ImageDataset(Dataset):
         return list
 
 
-class TrainSurrogate(RichMixin, LoggerMixin, Clock):
+class TrainSurrogate(Pipeline[TrainParams]):
+    ParamsClass = TrainParams
     save_prefix = 'train_surrogate'
     logname = 'train'
 
-    def __init__(self, params: TrainParams, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.init_params(params)
         self.init_torch()
-        self.init_pipeline()
 
         self.model: 'torch.nn.Module' | None = None
         self.epochs = []
@@ -145,17 +133,6 @@ class TrainSurrogate(RichMixin, LoggerMixin, Clock):
         self.epoch: int = 0
 
         self.loss_curve_file = os.path.join(self.root_dir, 'loss_curve.dat')
-
-    def init_params(self, params: TrainParams):
-        """Initialize parameters"""
-        self.params = params
-
-        save_param_file = os.path.join(self.root_dir, 'params.json')
-        self.params.to_json(save_param_file)
-
-        # self.data = myio.read_volume(self.params.input_file).astype(np.float32)
-
-        # self.geom_slice = (slice(None), slice(None), slice(None))
 
     def init_torch(self):
         """Initialize PyTorch and check for GPU availability."""
@@ -439,52 +416,3 @@ class TrainSurrogate(RichMixin, LoggerMixin, Clock):
         losses_file = os.path.join(self.root_dir, 'losses.json')
         with open(losses_file, 'w') as f:
             json.dump(losses, f, indent=4)
-
-    def run_pipeline(self):
-        """Run the pipeline of tasks"""
-        cls_name = self.__class__.__name__
-        op = self.overall_progress
-        sp = self.step_progress
-
-        idx = 0
-        success_colors = ['green', 'bold green']
-        self.overall_task_id = ot_id = op.add_task(f'Generating {cls_name} ...', total=len(self.tasks))
-        with self.rich_live:
-            for func, args, kwargs, logtask in self.tasks:
-                self.logger.debug('=' * 80)
-                self.logger.debug('Running task: %s', func.__name__)
-                self.logger.debug('Task args: %s', args)
-                self.logger.debug('Task kwargs: %s', kwargs)
-                if logtask:
-                    step_id = sp.add_task(f'{func.__name__:>30s}', total=1)
-
-                func(*args, **kwargs)
-
-                if logtask:
-                    color = success_colors[idx % len(success_colors)]
-                    sp.advance(step_id, 1)
-                    sp.update(step_id, description=f'[{color}]{func.__name__:>30s}')
-                    idx += 1
-
-                op.update(ot_id, advance=1)
-
-    def report(self):
-        """Final report for the generation"""
-        self.logger.info(self.report_clocks())
-
-    def run(self):
-        """Generate the volume image"""
-        self.run_pipeline()
-        self.report()
-
-    @classmethod
-    def run_from_dict(
-            cls,
-            data: dict, output_dir: str = None,
-            loglevel: int = logging.DEBUG,
-        ) -> None:
-        """Run the generator from a dictionary of parameters"""
-        params = TrainParams.from_dict(data)
-        ffp = cls(params, outdir=output_dir)
-        ffp.set_console_level(loglevel)
-        ffp.run()

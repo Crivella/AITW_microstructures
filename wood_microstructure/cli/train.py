@@ -30,7 +30,7 @@ def train(ctx, config_file, output_dir, verbose) -> None:
     if overrides:
         data.update(overrides)
 
-    TrainSurrogate.run_from_dict(data, output_dir=output_dir, loglevel=loglevel)
+    TrainSurrogate.run_from_dict(data=data, output_dir=output_dir, loglevel=loglevel)
 
 __all__ = [
     'train'

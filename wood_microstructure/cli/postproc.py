@@ -102,7 +102,7 @@ def filter_porosity(ctx, config_file, output_dir, verbose) -> None:
     if overrides:
         data.update(overrides)
 
-    FitPorosity.run_from_dict(data, output_dir=output_dir, loglevel=loglevel)
+    FitPorosity.run_from_dict(data=data, output_dir=output_dir, loglevel=loglevel)
 
 
 __all__ = [
