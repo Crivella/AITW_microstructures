@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 filter_fit_porosity.py — Geometry filter for OpenLB interpolated boundary conditions.
 
