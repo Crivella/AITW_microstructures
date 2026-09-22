@@ -4,6 +4,7 @@ import sys
 import nrrd
 import numpy as np
 import numpy.typing as npt
+from PIL import Image
 
 
 def input_npy(fpath: str) -> npt.NDArray:
@@ -32,15 +33,15 @@ def input_vti(fpath: str) -> npt.NDArray:
 
     return numpy_support.vtk_to_numpy(scalars).reshape(dims, order='F').astype(np.float32)
 
-def output_npy(fpath: str, data: npt.NDArray):
+def output_npy(fpath: str, data: npt.NDArray, **kwargs):
     """Save a numpy file."""
-    np.save(fpath, data)
+    np.save(fpath, data, **kwargs)
 
-def output_nrrd(fpath: str, data: npt.NDArray):
+def output_nrrd(fpath: str, data: npt.NDArray, **kwargs):
     """Save a nrrd file."""
-    nrrd.write(fpath, data, index_order='C')
+    nrrd.write(fpath, data, index_order='C', **kwargs)
 
-def output_vti(fpath: str, data: npt.NDArray):
+def output_vti(fpath: str, data: npt.NDArray, **kwargs):
     """Save a vti file."""
     try:
         import vtk
@@ -66,13 +67,13 @@ def output_vti(fpath: str, data: npt.NDArray):
     writer.SetInputData(image_data)
     writer.Write()
 
-input_funcs = {
+volume_input_funcs = {
     'npy': input_npy,
     'nrrd': input_nrrd,
     'vti': input_vti,
 }
 
-output_funcs = {
+volume_output_funcs = {
     'npy': output_npy,
     'nrrd': output_nrrd,
     'vti': output_vti,
@@ -81,16 +82,48 @@ output_funcs = {
 def read_volume(fpath: str) -> npt.NDArray:
     """Read a volume from a file."""
     ext = os.path.splitext(fpath)[1][1:]  # Get the file extension without the dot
-    if ext not in input_funcs:
-        raise ValueError(f"Unsupported file format: {ext}. Supported formats: {list(input_funcs.keys())}")
-    return input_funcs[ext](fpath)
+    if ext not in volume_input_funcs:
+        raise ValueError(f"Unsupported file format: {ext}. Supported formats: {list(volume_input_funcs.keys())}")
+    return volume_input_funcs[ext](fpath)
 
-def write_volume(fpath: str, data: npt.NDArray):
+def write_volume(fpath: str, data: npt.NDArray, **kwargs):
     """Write a volume to a file."""
     ext = os.path.splitext(fpath)[1][1:]  # Get the file extension without the dot
-    if ext not in output_funcs:
-        raise ValueError(f"Unsupported file format: {ext}. Supported formats: {list(output_funcs.keys())}")
-    output_funcs[ext](fpath, data)
+    if ext not in volume_output_funcs:
+        raise ValueError(f"Unsupported file format: {ext}. Supported formats: {list(volume_output_funcs.keys())}")
+    volume_output_funcs[ext](fpath, data, **kwargs)
+
+slice_input_funcs = {
+    'npy': input_npy,
+    'csv': lambda fpath: np.loadtxt(fpath, delimiter=','),
+    'png': lambda fpath: np.array(Image.open(fpath)),
+    'tiff': lambda fpath: np.array(Image.open(fpath)),
+    'jpg': lambda fpath: np.array(Image.open(fpath)),
+    'jpeg': lambda fpath: np.array(Image.open(fpath)),
+}
+
+slice_output_funcs = {
+    'npy': output_npy,
+    'csv': lambda fpath, data, **kwargs: np.savetxt(fpath, data, delimiter=',', **kwargs),
+    'png': lambda fpath, data, **kwargs: Image.fromarray(data).save(fpath),
+    'tiff': lambda fpath, data, **kwargs: Image.fromarray(data).save(fpath),
+    'jpg': lambda fpath, data, **kwargs: Image.fromarray(data).save(fpath),
+    'jpeg': lambda fpath, data, **kwargs: Image.fromarray(data).save(fpath),
+}
+
+def read_slice(fpath: str) -> npt.NDArray:
+    """Read a 2D slice from a file."""
+    ext = os.path.splitext(fpath)[1][1:]  # Get the file extension without the dot
+    if ext not in slice_input_funcs:
+        raise ValueError(f"Unsupported file format: {ext}. Supported formats: {list(slice_input_funcs.keys())}")
+    return slice_input_funcs[ext](fpath)
+
+def write_slice(fpath: str, data: npt.NDArray, **kwargs):
+    """Write a 2D slice to a file."""
+    ext = os.path.splitext(fpath)[1][1:]  # Get the file extension without the dot
+    if ext not in slice_output_funcs:
+        raise ValueError(f"Unsupported file format: {ext}. Supported formats: {list(slice_output_funcs.keys())}")
+    slice_output_funcs[ext](fpath, data, **kwargs)
 
 __all__ = [
     'input_npy',

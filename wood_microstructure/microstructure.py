@@ -1578,8 +1578,8 @@ class WoodMicrostructure(RichMixin, LoggerMixin, Clock, ABC):
         v_name = os.path.join(self.root_dir, 'LocalDistVolumeDispV', f'v_volImgRef_{slice_idx+1:05d}.csv')
         self.ensure_dir(u_name)
         self.ensure_dir(v_name)
-        np.savetxt(u_name, np.round(u, decimals=4), delimiter=',', fmt='%0.4f')
-        np.savetxt(v_name, np.round(v, decimals=4), delimiter=',', fmt='%0.4f')
+        myio.write_slice(u_name, np.round(u, decimals=4), fmt='%0.4f')
+        myio.write_slice(v_name, np.round(v, decimals=4), fmt='%0.4f')
 
     def save_local_deformation(self):
         """Save the local distortion fields"""
@@ -1604,8 +1604,8 @@ class WoodMicrostructure(RichMixin, LoggerMixin, Clock, ABC):
         v_name = os.path.join(self.root_dir, 'GlobalDistVolumeDispV', f'v_volImgRef_{slice_idx+1:05d}.csv')
         self.ensure_dir(u_name)
         self.ensure_dir(v_name)
-        np.savetxt(u_name, np.round(u, decimals=4), delimiter=',', fmt='%0.4f')
-        np.savetxt(v_name, np.round(v, decimals=4), delimiter=',', fmt='%0.4f')
+        myio.write_slice(u_name, np.round(u, decimals=4), fmt='%0.4f')
+        myio.write_slice(v_name, np.round(v, decimals=4), fmt='%0.4f')
 
     def fit_porosity(self):
         """Run the extra step to fit the porosity of the generated volume image"""
