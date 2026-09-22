@@ -92,6 +92,8 @@ class JsonParams:
             elif typ == str:
                 if metadata.get('file', False):
                     typ = click.Path(exists=True, dir_okay=False, readable=True, resolve_path=True)
+                elif metadata.get('dir', False):
+                    typ = click.Path(exists=True, file_okay=False, readable=True, resolve_path=True)
 
             expose = metadata.get('expose_value', False)
             # prefix = '--param-' if not expose else '--'
@@ -102,14 +104,15 @@ class JsonParams:
                 decl = f'{prefix}{fld.name}/{prefix}no-{fld.name}'
             name_map[f'param_{fld.name}'] = fld.name
 
-            group = metadata.get('group', OVERRIDE_GROUP)
+            required = metadata.get('required', False)
 
+            group = metadata.get('group', OVERRIDE_GROUP)
             groups.add(group)
 
             kwargs = {
                 'type': typ,
                 'is_flag': fld.type == bool,
-                'required': False,
+                'required': required,
                 'expose_value': expose,
                 'callback': callback,
                 'help': metadata.get('help', None),
@@ -520,3 +523,135 @@ class FitPorosityParams(JsonParams):
             'min': 0,
         }
     )
+
+@dataclass
+class TrainParams(JsonParams):
+    """Define the parameters for training the surrogate model"""
+    train_dir: str = field(
+        default=None,
+        metadata={
+            'help': 'Directory containing training data',
+            'group': 'Dataset Options',
+            'dir': True,
+            'required': True,
+        }
+    )
+    validation_dir: str = field(
+        default=None,
+        metadata={
+            'help': 'Directory containing validation data',
+            'group': 'Dataset Options',
+            'dir': True,
+            'required': True,
+        }
+    )
+    test_dir: str = field(
+        default=None,
+        metadata={
+            'help': 'Directory containing test data',
+            'group': 'Dataset Options',
+            'dir': True,
+            'required': True,
+        }
+    )
+
+    backbone_subdir: str = field(
+        default='volImgBackBone',
+        metadata={
+            'help': 'Subdirectory name for the undistorted backbone images within the train/validation/test directories',
+            'group': 'Dataset Options',
+        }
+    )
+    distorted_subdir: str = field(
+        default='LocalDistVolume',
+        metadata={
+            'help': 'Subdirectory name for the distorted images within the train/validation/test directories',
+            'group': 'Dataset Options',
+        }
+    )
+    u_map_subdir: str = field(
+        default='LocalDistVolumeDispU',
+        metadata={
+            'help': 'Subdirectory name for the u displacement maps within the train/validation/test directories',
+            'group': 'Dataset Options',
+        }
+    )
+    v_map_subdir: str = field(
+        default='LocalDistVolumeDispV',
+        metadata={
+            'help': 'Subdirectory name for the v displacement maps within the train/validation/test directories',
+            'group': 'Dataset Options',
+        }
+    )
+
+    learning_rate: float = field(
+        default=2e-4,
+        metadata={
+            'help': 'Learning rate for training the surrogate model',
+            'group': 'Training Options',
+            'min': 1e-8, 'max': 1.0,
+        }
+    )
+    epochs: int = field(
+        default=1000,
+        metadata={
+            'help': 'Number of epochs for training the surrogate model',
+            'group': 'Training Options',
+            'min': 1,
+        }
+    )
+    training_batch_size: int = field(
+        default=2,
+        metadata={
+            'help': 'Batch size for training the surrogate model',
+            'group': 'Training Options',
+            'min': 1,
+        }
+    )
+    validation_batch_size: int = field(
+        default=2,
+        metadata={
+            'help': 'Batch size for validation during training the surrogate model',
+            'group': 'Training Options',
+            'min': 1,
+        }
+    )
+    patience: int = field(
+        default=20,
+        metadata={
+            'help': 'Number of epochs with no improvement after which training will be stopped (early stopping)',
+            'group': 'Training Options',
+            'min': 1,
+        }
+    )
+    training_workers: int = field(
+        default=4,
+        metadata={
+            'help': 'Number of worker threads for loading training data',
+            'group': 'Training Options',
+            'min': 1,
+        }
+    )
+    validation_workers: int = field(
+            default=4,
+            metadata={
+                'help': 'Number of worker threads for loading validation data',
+                'group': 'Training Options',
+                'min': 1,
+            }
+        )
+    save_interval: int = field(
+        default=100,
+        metadata={
+            'help': 'Save model checkpoint every N epochs. Set to 0 to disable checkpoint saving.',
+            'group': 'Training Options',
+            'min': 0,
+        }
+    )
+
+    # def __post_init__(self):
+    #     """Perform post-initialization checks and validations"""
+    #     if self.validation_dir is None:
+    #         self.validation_dir = self.train_dir
+    #     if self.test_dir is None:
+    #         self.test_dir = self.train_dir
