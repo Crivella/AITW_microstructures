@@ -106,13 +106,13 @@ class ImageDataset(Dataset):
 
         return image_nodist, u_map, v_map, image_dist, self.files[index]
 
-    def zeropadding(self, unpadded):
-        lsize = unpadded.size()
-        sh = lsize[1]
-        sw = lsize[2]
-        zeroPad = nn.ZeroPad2d((self.columns-sw,0,self.rows-sh,0))
-        padded = zeroPad(unpadded)
-        return padded
+    # def zeropadding(self, unpadded):
+    #     lsize = unpadded.size()
+    #     sh = lsize[1]
+    #     sw = lsize[2]
+    #     zeroPad = nn.ZeroPad2d((self.columns-sw,0,self.rows-sh,0))
+    #     padded = zeroPad(unpadded)
+    #     return padded
 
     def getfiles(self, path, is_top):
         list = []
