@@ -29,18 +29,7 @@ except ImportError:
 
 
 class ImageDataset(Dataset):
-    def __init__(self, dir_nodist, dir_u_map, dir_v_map, dir_dist, padded):
-        # TODO:
-        # - should this be harcoded?
-        # - Are all images expected to have the same size?
-        # - Or be bigger/smaller than this size?
-        self.rows = 900
-        self.columns = 1600
-        # self.rows: int = None
-        # self.columns: int = None
-
-        self.padded = padded
-
+    def __init__(self, dir_nodist, dir_u_map, dir_v_map, dir_dist):
         self.data_dir_nodist = dir_nodist
         self.data_dir_u_map = dir_u_map
         self.data_dir_v_map = dir_v_map
@@ -58,50 +47,23 @@ class ImageDataset(Dataset):
 
     def __getitem__(self, index) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None, str]:
         image_nodist = myio.read_slice(self.images_nodist[index])
-        # if self.rows is None or self.columns is None:
-        #     self.rows, self.columns = image_nodist.size[1], image_nodist.size[0]
-        # else:
-        #     rows, columns = image_nodist.size[1], image_nodist.size[0]
-        #     if rows != self.rows or columns != self.columns:
-        #         raise ValueError(
-        #             f'Image size mismatch at idx {index}: '
-        #             f'expected ({self.rows}, {self.columns}), got ({rows}, {columns})'
-        #         )
         image_nodist = ToTensor()(image_nodist)
-        # if self.padded == True:
-        #     image_nodist = self.zeropadding(image_nodist)
 
-        # u_map = pd.read_csv(self.u_maps[index], header=None)
         u_map = myio.read_slice(self.u_maps[index])
         u_map = torch.tensor(u_map.astype(np.float32))
         u_map = torch.unsqueeze(u_map,0)
-        # if self.padded == True:
-        #     u_map = self.zeropadding(u_map)
 
-        # v_map = pd.read_csv(self.v_maps[index], header=None)
         v_map = myio.read_slice(self.v_maps[index])
         v_map = torch.tensor(v_map.astype(np.float32))
         v_map = torch.unsqueeze(v_map,0)
-        # if self.padded == True:
-        #     v_map = self.zeropadding(v_map)
 
         if self.data_dir_dist:
             image_dist = myio.read_slice(self.images_dist[index])
             image_dist = ToTensor()(image_dist)
-            # if self.padded == True:
-            #     image_dist = self.zeropadding(image_dist)
         else:
             image_dist = None
 
         return image_nodist, u_map, v_map, image_dist, self.files[index]
-
-    # def zeropadding(self, unpadded):
-    #     lsize = unpadded.size()
-    #     sh = lsize[1]
-    #     sw = lsize[2]
-    #     zeroPad = nn.ZeroPad2d((self.columns-sw,0,self.rows-sh,0))
-    #     padded = zeroPad(unpadded)
-    #     return padded
 
     def getfiles(self, path, is_top):
         list = []
@@ -127,8 +89,6 @@ class TrainSurrogate(Pipeline[TrainParams]):
         self.init_torch()
 
         self.model: 'torch.nn.Module' | None = None
-        self.epochs = []
-        self.loss = []
 
         self.epoch: int = 0
 
@@ -252,9 +212,9 @@ class TrainSurrogate(Pipeline[TrainParams]):
             v_map = os.path.join(root, params.v_map_subdir)
             paths[dname] = [nodist, u_map, v_map, dist]
 
-        self.train_set = ImageDataset(*paths['train'], padded=False)
-        self.valid_set = ImageDataset(*paths['validation'], padded=False)
-        self.test_set = ImageDataset(*paths['test'], padded=False)
+        self.train_set = ImageDataset(*paths['train'])
+        self.valid_set = ImageDataset(*paths['validation'])
+        self.test_set = ImageDataset(*paths['test'])
 
         train_size = len(self.train_set)
         valid_size = len(self.valid_set)
@@ -284,28 +244,9 @@ class TrainSurrogate(Pipeline[TrainParams]):
     @Clock.register(['Training'])
     def train_one_epoch(self) -> float:
         """Train the model for one epoch and return the average training loss"""
-        # self.model.train()
-        # total_loss = 0.0
-        # for batch_idx, (X1, X2, X3, y, _) in enumerate(self.train_loader):
-        #     X1, X2, X3, y = X1.to(self.device), X2.to(self.device), X3.to(self.device), y.to(self.device)
-
-        #     self.optimizer.zero_grad()
-        #     outputs = self.model(X1, X2, X3)
-        #     loss = self.loss_fn(outputs, y)
-        #     loss.backward()
-        #     self.optimizer.step()
-
-        #     total_loss += loss.item()
-
-        # avg_loss = total_loss / len(self.train_loader)
-        # self.logger.info('Epoch %d: Training loss: %.6f', self.epoch + 1, avg_loss)
-        # return avg_loss
-
         dataloader = self.train_loader
-        # train_batch_size = self.params.training_batch_size
         device = self.device
 
-        # size = len(dataloader.dataset)
         num_batches = len(dataloader)
         total_loss = 0.0
         for batch, (X1, X2, X3, y, file_name) in enumerate(dataloader):
@@ -359,19 +300,14 @@ class TrainSurrogate(Pipeline[TrainParams]):
             train_loss = self.train_one_epoch()
             val_loss = self.validate_one_epoch()
 
-            self.epochs.append(epoch)
-            self.loss.append((train_loss, val_loss))
-
             with open(self.loss_curve_file, 'a') as f:
                 f.write(f'{epoch:>6d} {train_loss:>11.7f} {val_loss:>11.7f}\n')
 
             if val_loss < self.best_val_loss:
+                patience = 0
                 self.best_val_loss = val_loss
                 self.best_train_loss = train_loss
                 self.best_model_weights = copy.deepcopy(self.model.state_dict())
-                # best_model_file = os.path.join(self.root_dir, 'best_model.pth')
-                # torch.save(self.best_model_weights, best_model_file)
-                patience = 0
                 self.logger.info('Best model saved at epoch %d with validation loss %.6f', epoch + 1, val_loss)
             else:
                 patience += 1
@@ -394,8 +330,6 @@ class TrainSurrogate(Pipeline[TrainParams]):
         """Save the trained surrogate model"""
         self.model.load_state_dict(self.best_model_weights)
         self._save_model_weights(os.path.join(self.root_dir, 'best_model.pth'))
-
-        torch.save(self.model.state_dict(), os.path.join(self.root_dir, 'best_model.pth'))
 
     @Clock.register(['Testing'])
     def test_loss(self):
