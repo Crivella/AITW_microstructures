@@ -586,19 +586,22 @@ class TrainParams(JsonParams):
     validation_dir: str = field(
         default=None,
         metadata={
-            'help': 'Directory containing validation data',
+            'help': (
+                'Directory containing validation data. '
+                'IF NOT PROVIDED, training data will be split for validation.'
+            ),
             'group': 'Dataset Options',
             'dir': True,
-            'required': True,
+            # 'required': True,
         }
     )
     test_dir: str = field(
         default=None,
         metadata={
-            'help': 'Directory containing test data',
+            'help': 'Directory containing test data. IF NOT PROVIDED, training data will be split for testing.',
             'group': 'Dataset Options',
             'dir': True,
-            'required': True,
+            # 'required': True,
         }
     )
 
@@ -712,9 +715,26 @@ class TrainParams(JsonParams):
         }
     )
 
-    # def __post_init__(self):
-    #     """Perform post-initialization checks and validations"""
-    #     if self.validation_dir is None:
-    #         self.validation_dir = self.train_dir
-    #     if self.test_dir is None:
-    #         self.test_dir = self.train_dir
+    cross_validation: bool = field(
+        default=False,
+        metadata={
+            'help': 'Whether to use cross-validation for training the surrogate model',
+            'group': 'Cross-Validation Options',
+        }
+    )
+    num_folds: int = field(
+        default=5,
+        metadata={
+            'help': 'Number of folds for cross-validation',
+            'group': 'Cross-Validation Options',
+            'min': 1,
+        }
+    )
+    train_ratio: float = field(
+        default=0.9,
+        metadata={
+            'help': 'Ratio of training data in each fold for cross-validation',
+            'group': 'Cross-Validation Options',
+            'min': 0.0, 'max': 1.0,
+        }
+    )

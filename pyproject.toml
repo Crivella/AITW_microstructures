@@ -42,6 +42,7 @@ surrogate = [
 surrogate_train = [
     "torch",
     "torchvision",
+    "scikit-learn",
 ]
 gpu_griddata = [
     "cupy",
