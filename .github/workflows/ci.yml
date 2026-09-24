@@ -127,4 +127,16 @@ jobs:
                 [ -f train_surrogate_0/best_model.pth ] || ( echo "Training failed. Model file not found." ; exit 1 )
                 [ -f train_surrogate_0/losses.json ] || ( echo "Training test failed. Losses file not found." ; exit 1 )
                 [ -f train_surrogate_0/params.json ] || ( echo "Training failed. Params file not found." ; exit 1 )
-                [ -f train_surrogate_0/test_output/volImgRef_00001.tiff ] || ( echo "Training test failed. Test output file not found." ; exit 1 )
+                [ -d train_surrogate_0/test_output_fold_1 ] || ( echo "Training test failed. Test output directory not found." ; exit 1 )
+                [ -f train_surrogate_0/test_output_fold_1/volImgRef_00001.tiff ] || ( echo "Training test failed. Test output file not found." ; exit 1 )
+
+                wood_ms train --train_dir Dataset/train/ --epochs 2 --cross_validation --num_folds 1
+                grep -q 'Time report:' train_surrogate_1/train.log || (
+                    echo "Training did not complete successfully" ; exit 1
+                )
+                [ -f train_surrogate_1/best_model.pth ] || ( echo "Training failed. Model file not found." ; exit 1 )
+                [ -f train_surrogate_1/best_model_fold_3.pth ] || ( echo "Training failed. Model file for last fold not found." ; exit 1 )
+                [ -f train_surrogate_1/losses.json ] || ( echo "Training test failed. Losses file not found." ; exit 1 )
+                [ -f train_surrogate_1/params.json ] || ( echo "Training failed. Params file not found." ; exit 1 )
+                [ -d train_surrogate_1/test_output_fold_1 ] || ( echo "Training test failed. Test output directory 1 not found." ; exit 1 )
+                [ -d train_surrogate_1/test_output_fold_3 ] || ( echo "Training test failed. Test output directory 3 not found." ; exit 1 )
